@@ -1,0 +1,5 @@
+menu "SadBoard troubleshooting labs"
+
+# Add scenario package Config.in entries here as they are implemented.
+
+endmenu
