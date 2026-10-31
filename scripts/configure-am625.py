@@ -15,7 +15,11 @@ def main():
     parser.add_argument("--toolchain", type=Path, help="optional existing AArch64 GCC 15/glibc toolchain, Linux 7.0 headers")
     parser.add_argument("--dl-dir", type=Path, help="optional shared Buildroot download cache")
     parser.add_argument("--kernel-extra", action="append", choices=["kgdb", "memory"], default=[])
+    parser.add_argument("--export-defconfig", action="store_true",
+                        help="regenerate the portable sadboard_am625_debug_defconfig for maintainers")
     args = parser.parse_args()
+    if args.export_defconfig and (args.toolchain or args.dl_dir or args.kernel_extra):
+        parser.error("--export-defconfig requires the default profile without local or optional settings")
     output = args.output.resolve()
     if (output / ".config").exists():
         parser.error("output already contains .config; use a new output directory to preserve it")
@@ -65,6 +69,18 @@ def main():
     missing = [key for key in required if not re.search(r"^" + key + r"=y$", config, re.M)]
     if missing or "BR2_STRIP_strip=y" in config:
         raise SystemExit(f"debug configuration validation failed: {missing}; check strip setting")
+    if args.export_defconfig:
+        generated = output / "sadboard_am625_debug_defconfig"
+        subprocess.run(command + ["savedefconfig", f"DEFCONFIG={generated}"], check=True)
+        destination = external / "configs/sadboard_am625_debug_defconfig"
+        header = (
+            "# Generated from bsp-base-external/configs/alientek_am62x_defconfig,\n"
+            "# configs/debug-tools.config and board/am625/debug.config.\n"
+            "# Regenerate using scripts/configure-am625.py --export-defconfig\n"
+            "# with a fresh --output directory; do not add machine-specific paths.\n"
+        )
+        destination.write_text(header + generated.read_text())
+        print(f"Exported {destination}")
     print(f"Configured {output} (no firmware built).")
     print(f"Build with: make -C {output}")
 
