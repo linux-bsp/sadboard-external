@@ -1,0 +1,11 @@
+#!/bin/sh
+# Expose tracing interfaces without enabling tracing or injecting faults.
+case "$1" in
+    start)
+        grep -qs ' /sys/kernel/debug ' /proc/mounts || mount -t debugfs debugfs /sys/kernel/debug || exit 1
+        grep -qs ' /sys/kernel/tracing ' /proc/mounts || mount -t tracefs tracefs /sys/kernel/tracing || exit 1
+        ;;
+    stop) ;;
+    restart) "$0" start ;;
+    *) echo "Usage: $0 {start|stop|restart}" >&2; exit 1 ;;
+esac

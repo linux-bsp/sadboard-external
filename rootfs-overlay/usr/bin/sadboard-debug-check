@@ -1,0 +1,19 @@
+#!/bin/sh
+# Read-only capability checks; no stress, tracing session or crash is triggered.
+fail=0
+printf 'Kernel: '; uname -a
+for tool in gdbserver strace ltrace valgrind perf trace-cmd ps vmstat iostat iperf3 tcpdump ss stress-ng; do
+    if command -v "$tool" >/dev/null 2>&1; then
+        printf 'OK tool %s\n' "$tool"
+    else
+        printf 'MISSING tool %s\n' "$tool"; fail=1
+    fi
+done
+for path in /proc/config.gz /proc/pressure/memory /sys/kernel/tracing/available_tracers /sys/kernel/tracing/events/sched/sched_switch/enable; do
+    if [ -r "$path" ]; then
+        printf 'OK interface %s\n' "$path"
+    else
+        printf 'MISSING interface %s\n' "$path"; fail=1
+    fi
+done
+exit "$fail"
