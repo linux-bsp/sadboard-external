@@ -30,6 +30,7 @@ install: all
 	for program in $(PROGRAMS); do $(INSTALL) -m 0755 $$program $(DESTDIR)/usr/libexec/sadboard/; done
 	$(INSTALL) -D -m 0755 sadboard $(DESTDIR)/usr/bin/sadboard
 	$(INSTALL) -D -m 0755 run-memory $(DESTDIR)/usr/libexec/sadboard/run-memory
+	$(INSTALL) -D -m 0755 execute $(DESTDIR)/usr/libexec/sadboard/execute
 	$(INSTALL) -m 0644 src/*.c src/*.h $(DESTDIR)/usr/src/sadboard/src/
 
 clean:

@@ -1,71 +1,153 @@
 #!/bin/sh
+# Public lifecycle entry; experiment payloads live in execute.
 set -eu
+umask 077
 tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
-new_run() {
-    root=${SADBOARD_RESULTS:-/data/sadboard}
-    mkdir -p "$root"
-    run=$(mktemp -d "$root/$1-XXXXXXXX")
-    echo "[sadboard] [INFO] Scenario=$1 results=$run"
-}
+root=${SADBOARD_RESULTS:-/data/sadboard}
 usage() {
-    echo 'Usage: sadboard {list|run CASE|verify CASE}; CASE=crash|oom|cpu|lock' >&2
+    echo 'Usage: sadboard list | {run|verify} CASE [NUMERIC_ARGS] | {status|check|reset} RUN_DIRECTORY' >&2
+    echo 'CASE: crash [KEY], oom, cpu [ITEMS QUERIES SEED], lock [ITERATIONS DELAY_US]' >&2
     exit 64
 }
+error() { echo "[sadboard] [ERROR] $*" >&2; exit 75; }
+read_field() { sed -n "s/^$1=//p" "$2"; }
 case "${1:-}" in
-    list)
-        echo 'crash  Application exits on an unknown record; GDB/core exercise'
-        echo 'oom    Memory grows until a dedicated 32 MiB cgroup kills the child'
-        echo 'cpu    Repeated table lookup consumes CPU; perf exercise'
-        echo 'lock   Two workers wait while a mutex covers simulated I/O'
-        ;;
-    run)
-        [ "$#" = 2 ] || usage
-        case "$2" in
-            crash)
-                new_run crash
-                cd "$run"
-                # BusyBox ash uses 512-byte blocks for RLIMIT_CORE: 32 MiB.
-                ulimit -c 65536
-                exec "$tools/crash-bug" 42 ;;
-            oom) new_run oom; exec "$tools/run-memory" bug "$run" ;;
-            cpu) new_run cpu; timeout -s KILL 30 "$tools/cpu-bug" 4096 500000 42 > "$run/cpu-bug.out"; cat "$run/cpu-bug.out" ;;
-            lock) new_run lock; timeout -s KILL 20 "$tools/lock-bug" 20 50000 > "$run/lock-bug.out"; cat "$run/lock-bug.out" ;;
+    list) [ "$#" = 1 ] || usage; exec sh "$tools/execute" list ;;
+    run|verify)
+        [ "$#" -ge 2 ] || usage
+        operation=$1; scenario=$2
+        case "$scenario:$#" in
+            crash:2|oom:2|cpu:2|lock:2) ;;
+            crash:3) [ "$operation" = run ] || usage ;;
+            cpu:5|lock:4) ;;
             *) usage ;;
         esac
+        shift 2
+        if [ "$#" = 0 ]; then
+            case "$scenario:$operation" in
+                crash:run) set -- 42 ;;
+                cpu:*) set -- 4096 500000 42 ;;
+                lock:*) set -- 20 50000 ;;
+            esac
+        fi
+        for value in "$@"; do
+            case "$value" in ''|*[!0-9]*|????????????*) usage ;; esac
+        done
+        [ -f /run/fwctl-boot-confirmed ] || error 'Wait for local boot health confirmation'
+        [ "$(cat /run/device-manager/storage-state)" = persistent ] || error 'Persistent data storage is unavailable'
+        available=$(df -Pk /data | { read -r header; read -r source blocks used free rest; echo "$free"; })
+        case "$available" in ''|*[!0-9]*) error 'Cannot read free data space' ;; esac
+        [ "$available" -ge 65536 ] || error 'At least 64 MiB of free data space is required; archive old evidence first'
+        mkdir -p "$root"
+        root=$(cd "$root" && pwd -P)
+        # Public machine interface; do not parse a private fwctld journal.
+        status=$(timeout -s KILL 10 fwctl ota-status) || error 'Cannot read firmware status'
+        read -r format booted active pending v0 g0 s0 id0 v1 g1 s1 id1 extra <<EOF
+$status
+EOF
+        [ "$format" = FWOTA2 ] && [ -z "$extra" ] && [ "$pending" = 255 ] || error 'Firmware update is pending or status format is invalid'
+        case "$booted" in
+            0) version=$v0; good=$g0; state=$s0; firmware=$id0 ;;
+            1) version=$v1; good=$g1; state=$s1; firmware=$id1 ;;
+            *) error 'Unknown booted deployment' ;;
+        esac
+        [ "$good:$state" = 1:4 ] && [ "${#firmware}" = 64 ] || error 'Running firmware is not confirmed'
+        case "$firmware" in *[!0-9a-f]*) error 'Invalid firmware content ID' ;; esac
+        run=$(mktemp -d "$root/$scenario-$(date +%Y%m%dT%H%M%S)-XXXXXXXX")
+        unit=sadboard-${run##*/}.service
+        tag=v$((version >> 16)).$(((version >> 8) & 255)).$((version & 255))
+        {
+            echo 'format=SADBOARD1'
+            echo "case=$scenario"
+            echo "operation=$operation"
+            echo "unit=$unit"
+            echo "started=$(date '+%Y-%m-%dT%H:%M:%S%z')"
+            echo "boot_id=$(cat /proc/sys/kernel/random/boot_id)"
+            echo "firmware_tag=$tag"
+            echo "firmware_id=$firmware"
+            echo "kernel=$(uname -r)"
+            echo "command=$tools/execute $operation $scenario"
+            for value in "$@"; do echo "argument=$value"; done
+            [ "$scenario" != oom ] || echo 'memory_budget=33554432; chunks=64; delay_ms=50'
+        } > "$run/run.info"
+        printf '%s\n' "$status" > "$run/firmware-status.txt"
+        short=$(printf '%.8s' "$firmware")
+        echo "[sadboard] [INFO] results=$run firmware=$tag/$short"
+        cancelled=0
+        stop_run() { cancelled=1; systemctl stop "$unit" 2>/dev/null || true; }
+        trap stop_run INT TERM HUP
+        result=0
+        systemd-run --quiet --wait --collect --service-type=exec --unit="$unit" \
+            --property=RuntimeMaxSec=30s --property=TimeoutStopSec=5s \
+            --property=KillMode=control-group --property=MemoryMax=134217728 \
+            --property=TasksMax=16 --property=LimitCORE=33554432 \
+            --property=UMask=0077 \
+            --property="WorkingDirectory=$run" \
+            --property="StandardOutput=append:$run/stdout.log" \
+            --property="StandardError=append:$run/stderr.log" \
+            --setenv="SADBOARD_RUN=$run" --setenv="SADBOARD_LIBEXEC=$tools" \
+            sh "$tools/execute" "$operation" "$scenario" "$@" \
+            > "$run/supervisor.log" 2>&1 || result=$?
+        trap - INT TERM HUP
+        supervisor_result=$result
+        [ ! -f "$run/cancel.request" ] || cancelled=1
+        [ "$cancelled" = 0 ] || result=130
+        {
+            echo "exit_code=$result"
+            echo "supervisor_exit_code=$supervisor_result"
+            echo "cancelled=$cancelled"
+            echo "finished=$(date '+%Y-%m-%dT%H:%M:%S%z')"
+        } > "$run/result.new"
+        mv "$run/result.new" "$run/result"
+        for log in "$run/stdout.log" "$run/stderr.log"; do
+            if [ -f "$log" ]; then cat "$log"; fi
+        done
+        echo "[sadboard] [INFO] exit=$result evidence=$run"
+        exit "$result"
         ;;
-    verify)
+    status|check|reset)
         [ "$#" = 2 ] || usage
-        case "$2" in
-            crash)
-                "$tools/crash-fixed" 1
-                if "$tools/crash-fixed" 42; then
-                    echo '[sadboard] [ERROR] Missing record incorrectly accepted' >&2
-                    exit 1
-                else
-                    result=$?
-                    [ "$result" = 2 ] || exit "$result"
-                fi
-                echo '[sadboard] [INFO] Reference repair passed: valid input works; missing record returns 2' ;;
-            oom)
-                new_run oom-verify
-                result=0
-                "$tools/run-memory" bug "$run" || result=$?
-                [ "$result" = 137 ] || exit 70
-                "$tools/run-memory" fixed "$run"
-                echo '[sadboard] [INFO] Reference repair passed: cgroup OOM reproduced; fixed workload completed' ;;
-            cpu|lock)
-                new_run "$2-verify"
-                if [ "$2" = cpu ]; then set -- "$2" 4096 500000 42; else set -- "$2" 20 50000; fi
-                name=$1; shift
-                timeout -s KILL 30 "$tools/$name-bug" "$@" > "$run/$name-bug.out"
-                timeout -s KILL 30 "$tools/$name-fixed" "$@" > "$run/$name-fixed.out"
-                cat "$run/$name-bug.out" "$run/$name-fixed.out"
-                if [ "$name" = cpu ]; then field=checksum; else field=completed; fi
-                bad=$(sed -n "s/.*\"$field\":\([0-9]*\).*/\1/p" "$run/$name-bug.out")
-                good=$(sed -n "s/.*\"$field\":\([0-9]*\).*/\1/p" "$run/$name-fixed.out")
-                [ -n "$bad" ] && [ "$bad" = "$good" ]
-                echo '[sadboard] [INFO] Reference business results match; compare saved timings and profiling evidence' ;;
-            *) usage ;;
+        operation=$1
+        root=$(cd "$root" && pwd -P)
+        [ ! -L "$2" ] && [ -d "$2" ] || error 'Use an existing experiment directory'
+        run=$(cd "$2" && pwd -P)
+        [ "${run%/*}" = "$root" ] && [ -f "$run/run.info" ] || error 'Directory is not a managed experiment'
+        [ "$(read_field format "$run/run.info")" = SADBOARD1 ] || error 'Unknown experiment format'
+        unit=sadboard-${run##*/}.service
+        [ "$(read_field unit "$run/run.info")" = "$unit" ] || error 'Experiment unit mismatch'
+        case "${run##*/}" in *[!A-Za-z0-9_-]*) error 'Invalid experiment name' ;; esac
+        if [ "$operation" = reset ]; then
+            if [ "$(read_field boot_id "$run/run.info")" = "$(cat /proc/sys/kernel/random/boot_id)" ] && systemctl is-active --quiet "$unit"; then
+                : > "$run/cancel.request"
+                systemctl stop "$unit"
+            fi
+            echo '[sadboard] [INFO] Experiment stopped; evidence retained'
+            exit 0
+        fi
+        cat "$run/run.info"
+        [ -f "$run/result" ] || { echo 'result=incomplete (running or interrupted)'; exit 1; }
+        cat "$run/result"
+        [ "$operation" = check ] || exit 0
+        code=$(read_field exit_code "$run/result")
+        [ "$(read_field cancelled "$run/result")" = 0 ] || exit 1
+        op=$(read_field operation "$run/run.info")
+        scenario=$(read_field case "$run/run.info")
+        if [ "$op" = verify ]; then
+            [ "$code" = 0 ] || exit 1
+            case "$scenario" in
+                crash|oom) grep -q 'Reference repair passed' "$run/stdout.log" ;;
+                cpu|lock) grep -q 'Reference business results match' "$run/stdout.log" ;;
+                *) exit 1 ;;
+            esac
+            exit
+        fi
+        case "$scenario:$code" in
+            crash:139) [ -n "$(find "$run" -maxdepth 1 -name 'core.crash-bug.*' -type f)" ] ;;
+            crash:0) grep -q 'record=1 value=64' "$run/stdout.log" ;;
+            oom:137) grep -Eq '^oom_kill [1-9][0-9]*$' "$run/memory-bug.events" ;;
+            cpu:0) grep -q '"checksum":' "$run/cpu-bug.out" ;;
+            lock:0) grep -q '"completed":' "$run/lock-bug.out" ;;
+            *) exit 1 ;;
         esac
         ;;
     *) usage ;;

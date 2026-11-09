@@ -51,7 +51,7 @@ class Labs(unittest.TestCase):
     def test_launcher_is_explicit_and_reference_check_is_repeatable(self):
         env = dict(os.environ, SADBOARD_LIBEXEC=str(self.build))
         for _ in range(2):
-            result = subprocess.run(['sh', str(self.build / 'sadboard'), 'verify', 'crash'],
+            result = subprocess.run(['sh', str(self.build / 'execute'), 'verify', 'crash'],
                                     env=env, capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0)
             self.assertIn('Reference repair passed', result.stdout)
@@ -91,6 +91,28 @@ class Labs(unittest.TestCase):
                            ('cpu', ('-1', '1', '1'))):
             for mode in ('bug', 'fixed'):
                 self.assertEqual(self.execute(name + '-' + mode, *args).returncode, 64)
+
+    def test_reference_check_rejects_early_success_without_results(self):
+        with tempfile.TemporaryDirectory(prefix='sadboard-empty-result-') as directory:
+            tools = Path(directory)
+            for name in ('cpu-bug', 'cpu-fixed', 'lock-bug', 'lock-fixed'):
+                p = tools / name
+                p.write_text('#!/bin/sh\nexit 0\n')
+                p.chmod(0o755)
+            env = dict(os.environ, SADBOARD_LIBEXEC=directory, SADBOARD_RESULTS=directory)
+            for case, args in (('cpu', ['1', '2', '0']), ('lock', ['1', '1'])):
+                result = subprocess.run(['sh', str(self.build / 'execute'), 'verify', case, *args],
+                                        env=env, capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 1)
+                self.assertNotIn('Reference business results match', result.stdout)
+
+    def test_controller_rejects_malformed_parameters_before_launch(self):
+        for args in (('run', 'cpu', '1', '2'), ('run', 'lock', '1', 'bad'),
+                     ('verify', 'crash', '42'), ('run', 'crash', '-1'),
+                     ('run', 'cpu', '1', '2', '0;touch /tmp/should-not-exist')):
+            result = subprocess.run(['sh', str(self.build / 'sadboard'), *args],
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 64)
 
 
 if __name__ == '__main__':
