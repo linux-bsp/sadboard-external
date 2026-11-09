@@ -35,6 +35,7 @@ advanced() {
 }
 case "${1:-}" in
     list)
+        [ ! -x "$tools/case-suite" ] || "$tools/case-suite" --list
         echo 'crash  Application exits on an unknown record; GDB/core exercise'
         echo 'oom    Memory grows until a dedicated 32 MiB cgroup kills the child'
         echo 'cpu    Repeated table lookup consumes CPU; perf exercise'
@@ -73,7 +74,11 @@ case "${1:-}" in
             deadline|backlog|tcp)
                 scenario=$2; shift 2
                 advanced run "$scenario" "$@" ;;
-            *) usage ;;
+            *)
+                "$tools/case-suite" --has "$2" || usage
+                new_run "$2-run"
+                "$tools/run-suite" run "$2" "$run"
+                cat "$run/$2-bug.out" ;;
         esac
         ;;
     verify)
@@ -132,7 +137,12 @@ case "${1:-}" in
             deadline|backlog|tcp)
                 scenario=$2; shift 2
                 advanced verify "$scenario" "$@" ;;
-            *) usage ;;
+            *)
+                "$tools/case-suite" --has "$2" || usage
+                new_run "$2-verify"
+                "$tools/run-suite" verify "$2" "$run"
+                cat "$run/$2-bug.out" "$run/$2-fixed.out"
+                "$tools/check-result" "$2" verify "$run" 0 ;;
         esac
         ;;
     *) usage ;;

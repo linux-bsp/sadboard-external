@@ -473,6 +473,163 @@ static void tcp_check(const char *mode, int count, char **args)
            "; send calls are not wire packets\n", calls[0], calls[1]);
 }
 
+enum suite_index {
+#define CASE(symbol, command, id, description, group, variant) S_##symbol,
+#include "basic-cases.def"
+#undef CASE
+    S_COUNT
+};
+static int suite_index(const char *name)
+{
+    static const char *const names[] = {
+#define CASE(symbol, command, id, description, group, variant) command,
+#include "basic-cases.def"
+#undef CASE
+    };
+    for (unsigned i = 0; i < S_COUNT; i++)
+        if (!strcmp(names[i], name))
+            return (int)i;
+    return -1;
+}
+static void suite_check(const char *name, const char *mode, int index)
+{
+    const char *const keys[] = {"completed", "checksum", "observed", "auxiliary",
+                                "before",    "after",    "cpu_ns",   "wall_ns"};
+    for (unsigned fixed = 0; fixed < (!strcmp(mode, "verify") ? 2U : 1U); fixed++) {
+        uint64_t v[8];
+        char file[128];
+        snprintf(file, sizeof(file), "%s-%s.out", name, fixed ? "fixed" : "bug");
+        numeric_json(file, keys, 8, v);
+        if (!v[6] || !v[7])
+            reject("suite missing timing");
+        snprintf(file, sizeof(file), "%s-%s.trace", name, fixed ? "fixed" : "bug");
+        FILE *trace = open_file(file, 1048576);
+        char line[256];
+        unsigned seen = 0;
+        if (!fgets(line, sizeof(line), trace) || strcmp(line, "event,value\n"))
+            reject("suite trace header");
+        while (fgets(line, sizeof(line), trace)) {
+            char *comma = strchr(line, ',');
+            if (!comma)
+                reject("suite trace row");
+            *comma = 0;
+            char *value = comma + 1;
+            uint64_t scalar = number(&value);
+            skip_space(&value);
+            if (*value)
+                reject("suite trace number");
+            for (unsigned i = 0; i < 6; i++)
+                if (!strcmp(line, keys[i])) {
+                    if ((seen & (1U << i)) || scalar != v[i])
+                        reject("suite summary does not match trace");
+                    seen |= 1U << i;
+                }
+        }
+        if (ferror(trace) || seen != 63)
+            reject("suite truncated trace");
+        fclose(trace);
+        uint64_t completed = v[0], sum = v[1], observed = v[2], aux = v[3], before = v[4],
+                 after = v[5];
+        int valid = 0;
+        switch (index) {
+        case S_cr_abort:
+            valid = completed == 1 && observed == (fixed ? 0U : 6U) && aux == (fixed ? 2U : 0U) &&
+                    sum == aux;
+            break;
+        case S_cr_heap:
+            valid = completed == 1 && !observed && aux == (fixed ? 0U : 99U) && sum == aux;
+            break;
+        case S_cr_stack:
+            valid = completed == 1 && observed == (fixed ? 0U : 11U) && aux == (fixed ? 2U : 0U) &&
+                    sum == aux;
+            break;
+        case S_cr_bus:
+            valid = completed == 1 && observed == (fixed ? 0U : 7U) && !aux && !sum;
+            break;
+        case S_fd_dup:
+        case S_fd_epoll:
+            valid =
+                completed == 16 && sum == 120 && observed == (fixed ? 0U : 16U) && before == after;
+            break;
+        case S_fd_close:
+            valid = completed == 16 && sum == 120 && observed == (fixed ? 0U : 16U) && aux == 16 &&
+                    before == after;
+            break;
+        case S_fd_exec:
+            valid = completed == 1 && sum == 1 && observed == (fixed ? 0U : 1U) && before == after;
+            break;
+        case S_mm_limit:
+            valid = completed == 1 && sum == 12 && observed == 12 && aux == (fixed ? 0U : 11U);
+            break;
+        case S_mm_rss:
+            valid = completed == 4194304U / (unsigned)sysconf(_SC_PAGESIZE) &&
+                    sum == completed * 7 && observed == (fixed ? 4194304U : 33554432U) &&
+                    aux == 4194304;
+            break;
+        case S_mm_shmem:
+            valid = completed == 8388608U / (unsigned)sysconf(_SC_PAGESIZE) &&
+                    sum == completed * 6 && observed == (fixed ? 0U : 1U) && aux == observed &&
+                    before == after;
+            break;
+        case S_mm_kill:
+            valid = completed == 1 && sum == 42 && observed == (fixed ? 0U : 9U) && !aux;
+            break;
+        case S_cpu_eagain:
+            valid = completed == 1 && sum == 42 && (fixed ? !observed : observed > 0) &&
+                    aux == observed + 1;
+            break;
+        case S_cpu_log:
+            valid = completed == 2048 && sum == 2096128 && observed == (fixed ? 64U : 2048U) &&
+                    aux == 2048;
+            break;
+        case S_cpu_poll:
+            valid = completed == 1 && sum == 42 && (fixed ? !observed : observed > 0);
+            break;
+        case S_cpu_cache:
+            valid = completed == 4194304 && sum == 534773760 && observed == (fixed ? 4U : 4096U) &&
+                    aux == 4194304;
+            break;
+        case S_sy_dead:
+            valid = completed == 1 && sum == (fixed ? 84U : 0U) && observed == (fixed ? 0U : 1U) &&
+                    aux == (fixed ? 0U : 9U);
+            break;
+        case S_sy_lost:
+            valid = completed == 1 && sum == 42 && observed == (fixed ? 0U : 110U) && aux == 1;
+            break;
+        case S_sy_race:
+            valid =
+                completed == 64 && sum == (fixed ? 64U : 32U) && observed == sum && after == sum;
+            break;
+        case S_sy_join:
+            valid = completed == 1 && sum == 1 && observed == (fixed ? 0U : 110U) && aux == 1 &&
+                    before == after;
+            break;
+        case S_net_frame:
+            valid = completed == (fixed ? 1U : 0U) && sum == (fixed ? 36U : 0U) &&
+                    observed == (fixed ? 12U : 3U) && aux == 12;
+            break;
+        case S_net_endian:
+            valid = completed == (fixed ? 1U : 0U) && sum == (fixed ? 1024U : 0U) &&
+                    observed == (fixed ? 1024U : 262144U) && aux == 4096;
+            break;
+        case S_net_udp:
+            valid = aux == 128 && observed == after - before &&
+                    sum == completed * (completed - 1) / 2 &&
+                    (fixed ? (completed == 128 && !observed)
+                           : (completed > 0 && completed < 128 && observed == 128 - completed));
+            break;
+        case S_net_fin:
+            valid = completed == 3 && sum == 3 && observed == (fixed ? 0U : 13U) &&
+                    aux == (fixed ? 32U : 0U) && before == 104 && !after;
+            break;
+        default:
+            break;
+        }
+        if (!valid)
+            reject("suite signal/resource/work contract differs");
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 5) return 64;
@@ -511,6 +668,9 @@ int main(int argc, char **argv)
         if (!strcmp(scenario, "deadline")) deadline_check(mode, argc - 5, argv + 5);
         else if (!strcmp(scenario, "backlog")) backlog_check(mode, argc - 5, argv + 5);
         else tcp_check(mode, argc - 5, argv + 5);
+    } else if(suite_index(scenario)>=0) {
+        if(argc!=5||code)reject("suite exit/parameters");
+        suite_check(scenario,mode,suite_index(scenario));
     } else return 64;
     printf("[sadboard] [INFO] Evidence contract matched: case=%s operation=%s\n", scenario, mode);
     return 0;

@@ -1,0 +1,27 @@
+#!/bin/sh
+# Run registered cases; network effects stay inside an owned namespace.
+set -eu
+[ "$#" = 3 ] || exit 64
+operation=$1; scenario=$2; run=$3
+tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
+case "$operation" in run|verify) ;; *) exit 64 ;; esac
+"$tools/case-suite" --has "$scenario"
+namespace=sb-suite-${run##*/}
+owned=0
+cleanup() { [ "$owned" = 0 ] || ip netns del "$namespace"; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+case "$scenario" in
+    net-*|fd-closewait)
+        ip netns add "$namespace"; owned=1
+        ip -n "$namespace" link set lo up ;;
+esac
+for variant in bug fixed; do
+    [ "$variant:$operation" != fixed:run ] || break
+    if [ "$owned" = 1 ]; then
+        ip netns exec "$namespace" timeout -s KILL 20 "$tools/case-suite" "$scenario" "$variant" "$run" > "$run/$scenario-$variant.out"
+    else
+        timeout -s KILL 20 "$tools/case-suite" "$scenario" "$variant" "$run" > "$run/$scenario-$variant.out"
+    fi
+done

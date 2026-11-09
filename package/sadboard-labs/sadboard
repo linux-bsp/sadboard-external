@@ -31,7 +31,8 @@ case "${1:-}" in
             panic:2) [ "$operation" = run ] || usage ;;
             crash:3) [ "$operation" = run ] || usage ;;
             cpu:5|lock:4|fd:4|deadline:5|backlog:4|tcp:3) ;;
-            *) usage ;;
+            *)
+                [ "$#" = 2 ] && [ -x "$tools/case-suite" ] && "$tools/case-suite" --has "$scenario" || usage ;;
         esac
         shift 2
         if [ "$#" = 0 ]; then
@@ -174,6 +175,9 @@ EOF
                 if [ "$(read_field case "$run/run.info")" = network ]; then
                     ip netns del "sb-left-${run##*/}" 2>/dev/null || true
                     ip netns del "sb-right-${run##*/}" 2>/dev/null || true
+                fi
+                if [ -x "$tools/case-suite" ] && "$tools/case-suite" --has "$(read_field case "$run/run.info")"; then
+                    ip netns del "sb-suite-${run##*/}" 2>/dev/null || true
                 fi
                 if [ "$(read_field case "$run/run.info")" = tcp ]; then
                     ip netns del "sb-tcp-${run##*/}" 2>/dev/null || true

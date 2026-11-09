@@ -191,6 +191,34 @@ class Labs(unittest.TestCase):
     def check_evidence(self, directory, case, mode, code, *args):
         return self.execute('check-result', case, mode, str(directory), str(code), *map(str, args))
 
+    def test_registered_basic_cases_trigger_and_repair_with_raw_evidence(self):
+        self.assertIsNotNone(shutil.which('valgrind'), 'Install host Valgrind for the heap-boundary exercise')
+        names = self.execute('case-suite', '--list').stdout.splitlines()
+        self.assertEqual(len(names), 24)
+        for entry in names:
+            name = entry.split()[0]
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory)
+                for variant in ('bug', 'fixed'):
+                    result = self.execute('case-suite', name, variant, directory)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    (path / f'{name}-{variant}.out').write_text(result.stdout)
+                check = self.check_evidence(path, name, 'verify', 0)
+                self.assertEqual(check.returncode, 0, check.stderr)
+                output = path / f'{name}-fixed.out'
+                trace = path / f'{name}-fixed.trace'
+                original, raw = output.read_text(), trace.read_text()
+                wrong = json.loads(original)
+                wrong['completed'] += 9000
+                output.write_text(json.dumps(wrong))
+                trace.write_text('\n'.join('completed,' + str(wrong['completed']) if line.startswith('completed,') else line for line in raw.splitlines())+'\n')
+                self.assertEqual(self.check_evidence(path, name, 'verify', 0).returncode, 1)
+                output.write_text(original)
+                trace.write_text('\n'.join(raw.splitlines()[:-1])+'\n')
+                self.assertEqual(self.check_evidence(path, name, 'verify', 0).returncode, 1)
+        for args in (('unknown', 'bug', '/tmp'), ('crash-abort', 'other', '/tmp'), ('--has', '../bad')):
+            self.assertEqual(self.execute('case-suite', *args).returncode, 64)
+
     def test_deadline_raw_timestamps_and_preserved_jobs(self):
         with tempfile.TemporaryDirectory() as directory:
             p = Path(directory)

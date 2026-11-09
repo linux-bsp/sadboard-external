@@ -34,11 +34,14 @@ def verify(images):
             raise ValueError(f'debugging file changed: {name}')
     labs = [f'labs/{name}-{mode}' for name in ('crash', 'cpu', 'memory', 'lock', 'fd', 'deadline', 'backlog', 'tcp')
             for mode in ('bug', 'fixed')]
-    labs.append('labs/check-result')
+    labs.extend(['labs/check-result', 'labs/case-suite'])
     required = ['vmlinux', 'System.map', 'kernel.config', 'buildroot.config', 'busybox.config',
                 'source/src/crash.c', 'source/src/cpu.c', 'source/src/memory.c',
                 'source/src/lock.c', 'source/src/fd.c', 'source/src/deadline.c',
-                'source/src/backlog.c', 'source/src/tcp.c', 'source/src/lab.h', *labs]
+                'source/src/backlog.c', 'source/src/tcp.c', 'source/src/lab.h',
+                'source/src/suite.c', 'source/src/suite.h', 'source/src/basic-cases.def',
+                'source/src/suite-fault.c', 'source/src/suite-fd.c', 'source/src/suite-memory.c',
+                'source/src/suite-cpu.c', 'source/src/suite-sync.c', 'source/src/suite-network.c', *labs]
     if not all(name in metadata['sha256'] for name in required):
         raise ValueError('debugging manifest is incomplete')
     for name in ('vmlinux', *labs):
