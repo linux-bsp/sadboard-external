@@ -1,0 +1,4 @@
+# The boot command chooses root mount type and ro/rw; support SD and NFS roots.
+# Do not remount an NFS debug root using the production SquashFS entry.
+tmpfs /tmp tmpfs mode=1777,nosuid,nodev 0 0
+tmpfs /var tmpfs mode=0755,nosuid,nodev 0 0

@@ -47,10 +47,22 @@ case "${1:-}" in
         mkdir -p "$root"
         root=$(cd "$root" && pwd -P)
         # Public machine interface; do not parse a private fwctld journal.
-        status=$(timeout -s KILL 10 fwctl ota-status) || error 'Cannot read firmware status'
+        status=$(timeout -s KILL 10 "$tools/boot-context") || error 'Cannot read boot context'
         read -r format booted active pending v0 g0 s0 id0 v1 g1 s1 id1 extra <<EOF
 $status
 EOF
+        boot_mode=local-ab
+        if [ "$format" = SBNET1 ]; then
+            boot_mode=network-debug
+            read -r format version firmware extra <<EOF
+$status
+EOF
+            [ -z "$extra" ] && [ "${#firmware}" = 64 ] || error 'Invalid network build information'
+            case "$version" in ''|*[!0-9]*|??????????*) error 'Invalid network build version' ;; esac
+            if [ "$scenario" = panic ]; then
+                [ "$(cat /data/sadboard/netboot-confirmed 2>/dev/null)" = "$firmware" ] || error 'First complete a healthy network boot of this build'
+            fi
+        else
         [ "$format" = FWOTA2 ] && [ -z "$extra" ] && [ "$pending" = 255 ] || error 'Firmware update is pending or status format is invalid'
         case "$booted" in
             0) version=$v0; good=$g0; state=$s0; firmware=$id0 ;;
@@ -58,6 +70,7 @@ EOF
             *) error 'Unknown booted deployment' ;;
         esac
         [ "$good:$state" = 1:4 ] && [ "${#firmware}" = 64 ] || error 'Running firmware is not confirmed'
+        fi
         case "$firmware" in *[!0-9a-f]*) error 'Invalid firmware content ID' ;; esac
         run=$(mktemp -d "$root/$scenario-$(date +%Y%m%dT%H%M%S)-XXXXXXXX")
         unit=sadboard-${run##*/}.service
@@ -69,6 +82,7 @@ EOF
             echo "unit=$unit"
             echo "started=$(date '+%Y-%m-%dT%H:%M:%S%z')"
             echo "boot_id=$(cat /proc/sys/kernel/random/boot_id)"
+            echo "boot_mode=$boot_mode"
             echo "firmware_tag=$tag"
             echo "firmware_id=$firmware"
             echo "kernel=$(uname -r)"

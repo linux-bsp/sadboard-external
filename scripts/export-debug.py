@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Save matching symbols and provenance after the BSP firmware image is built."""
 import hashlib
+import gzip
 import json
 import os
 from pathlib import Path
@@ -43,3 +44,23 @@ for path in sorted(out.rglob('*')):
         files[str(path.relative_to(out))] = digest.hexdigest()
 (out / 'build-info.json').write_text(json.dumps(dict(firmware=identity, sha256=files), indent=2) + '\n')
 print('SadBoard symbols saved:', out)
+
+# booti expects an uncompressed arm64 Image; keep these separate from OTA FITs.
+netboot = images / 'netboot'
+netboot.mkdir(exist_ok=True)
+with gzip.open(images / 'Image.gz', 'rb') as source, (netboot / 'Image').open('wb') as dest:
+    shutil.copyfileobj(source, dest)
+shutil.copyfile(images / 'k3-am625-alientek.dtb', netboot / 'k3-am625-alientek.dtb')
+shutil.copyfile(target / 'etc/sadboard/build.conf', netboot / 'build.conf')
+artifact_paths = ['netboot/Image', 'netboot/k3-am625-alientek.dtb', 'netboot/build.conf', 'rootfs.tar']
+checksums = {}
+for name in artifact_paths:
+    digest = hashlib.sha256()
+    with (images / name).open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    checksums[name] = digest.hexdigest()
+(netboot / 'manifest.json').write_text(json.dumps(dict(
+    format='SADBOARD-NETBOOT-1', reference_build=(netboot / 'build.conf').read_text().strip(),
+    sha256=checksums), indent=2) + '\n')
+print('SadBoard TFTP files and NFS rootfs manifest saved:', netboot)

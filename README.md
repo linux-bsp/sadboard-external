@@ -4,9 +4,13 @@ SadBoard 的 Buildroot 实验层，与 `bsp-base-external` 同时加载。主项
 
 ## 当前支持
 
-提供 TI AM6254 调试环境的配置生成入口、用户态工具配置、内核跟踪配置和目标端检查脚本。板级启动配置、源码版本和基础服务来自 BSP 层。基线使用 systemd，生成适配现有 RAW A/B 布局的 OTA kernel/rootfs、rootfs.tar 和匹配调试资料；工厂 SD 镜像只供新介质初始化。板上 SPL/U-Boot 不由普通实验 OTA 更新。
+提供 TI AM6254 调试环境的配置生成入口、用户态工具配置、内核跟踪配置和目标端检查脚本。板级启动配置、源码版本和基础服务来自 BSP 层。基线使用 systemd，默认 TFTP 内核/DTB＋NFS root；保留本地 RAW A/B 启动与 OTA kernel/rootfs。生成 rootfs.tar、images/netboot/ 和匹配调试资料；工厂 SD 镜像只供新介质初始化。板上 SPL/U-Boot 不由普通实验 OTA 更新。
 
-已提供手动应用崩溃案例和参考修复检查：`sadboard list`、`sadboard run crash`、`sadboard verify crash`。启动时仅挂载调试接口，没有自动故障注入或随机题库调度。可选 KGDB、锁检查和 kmemleak 配置仍需要分别上板验证；不默认启用 KASAN、eBPF/BTF 或 kdump。
+已提供崩溃、FD 耗尽、OOM、CPU、锁、隔离网络和启动 panic 七个手动案例。使用 `sadboard list`、`sadboard run crash`、`sadboard verify crash` 等命令，启动时没有自动故障注入或随机题库调度。可选 KGDB、锁检查和 kmemleak 配置仍需要分别上板验证；不默认启用 KASAN、eBPF/BTF 或 kdump。
+
+`board/am625/uboot-netboot.config` 默认启用独立的 `CONFIG_AM62X_BOOT_TFTP_KERNEL` 和
+`CONFIG_AM62X_BOOT_NFS_ROOT`，分别映射到 U-Boot 的 `tftp_kernel`、`nfs_root`。
+普通 BSP 两项均关闭。任一网络模式停用生产 OTA/槽位确认，使用独立调试健康门禁和 SBNET1 参考构建记录；SD `/data` 仍保存实验与日志。部署用 `scripts/deploy-netboot.py`，完整四模式配置和操作见工作区教材。
 
 ## 标准 defconfig 构建
 
@@ -61,7 +65,7 @@ git -C sadboard-external diff -- configs/sadboard_am625_debug_defconfig
 
 脚本调用 Buildroot 的 `olddefconfig` 和 `savedefconfig`，导出可直接加载的最小配置。将生成文件与对应输入改动一起提交。普通使用者无需执行此步骤。
 
-完整操作说明与实际验证记录见 [AM6254 环境指南](https://github.com/linux-bsp/workspace/blob/SadBoard/docs/am625-bootlin-debug-environment.md)。
+完整操作说明与实际验证记录见 [调试教材](https://github.com/linux-bsp/workspace/blob/SadBoard/docs/sadboard-debugging-handbook.md#netboot)。
 
 ## 目录与职责
 
@@ -85,6 +89,7 @@ git -C sadboard-external diff -- configs/sadboard_am625_debug_defconfig
 
 ```sh
 python3 sadboard-external/tests/test-labs.py
+python3 sadboard-external/tests/test-netboot.py
 ```
 
 配置与构建成功、真实 OTA success、工具和场景实机通过分别记录，不混作一个结论。
