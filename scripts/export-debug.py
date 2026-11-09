@@ -17,9 +17,16 @@ for source, name in [(build / 'linux-custom/vmlinux', 'vmlinux'),
                      (build / 'linux-custom/.config', 'kernel.config'),
                      (build.parent / '.config', 'buildroot.config')]:
     shutil.copyfile(source, out / name)
-for name in ('crash-bug', 'crash-fixed'):
-    (out / 'labs').mkdir(exist_ok=True)
-    shutil.copyfile(target / 'usr/libexec/sadboard' / name, out / 'labs' / name)
+shutil.rmtree(out / 'labs', ignore_errors=True)
+(out / 'labs').mkdir()
+for path in sorted((target / 'usr/libexec/sadboard').glob('*')):
+    if not path.is_file():
+        continue
+    with path.open('rb') as stream:
+        is_elf = stream.read(4) == b'\x7fELF'
+    if is_elf:
+        shutil.copyfile(path, out / 'labs' / path.name)
+shutil.rmtree(out / 'source', ignore_errors=True)
 shutil.copytree(target / 'usr/src/sadboard', out / 'source', dirs_exist_ok=True)
 identity = json.loads((images / 'firmware-identity.json').read_text())
 files = {}

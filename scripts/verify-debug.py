@@ -23,11 +23,14 @@ def verify(images):
                 digest.update(block)
         if digest.hexdigest() != expected:
             raise ValueError(f'debugging file changed: {name}')
-    required = ('vmlinux', 'System.map', 'kernel.config', 'buildroot.config',
-                'labs/crash-bug', 'labs/crash-fixed', 'source/src/crash.c')
+    labs = [f'labs/{name}-{mode}' for name in ('crash', 'cpu', 'memory', 'lock')
+            for mode in ('bug', 'fixed')]
+    required = ['vmlinux', 'System.map', 'kernel.config', 'buildroot.config',
+                'source/src/crash.c', 'source/src/cpu.c', 'source/src/memory.c',
+                'source/src/lock.c', 'source/src/lab.h', *labs]
     if not all(name in metadata['sha256'] for name in required):
         raise ValueError('debugging manifest is incomplete')
-    for name in ('vmlinux', 'labs/crash-bug', 'labs/crash-fixed'):
+    for name in ('vmlinux', *labs):
         sections = subprocess.check_output(['readelf', '--sections', '--wide', str(root / name)], text=True)
         if '.debug_info' not in sections:
             raise ValueError(f'debug symbols were stripped: {name}')

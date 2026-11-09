@@ -1,0 +1,41 @@
+#!/bin/sh
+# Keep the supervisor outside the leaf cgroup that deliberately reaches OOM.
+set -eu
+[ "$#" = 2 ] || exit 64
+mode=$1
+run=$2
+case "$mode" in bug|fixed) ;; *) exit 64 ;; esac
+tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
+cg=/sys/fs/cgroup/sadboard-oom-$$
+cleanup() {
+    if [ -d "$cg" ]; then
+        if [ -w "$cg/cgroup.kill" ]; then echo 1 > "$cg/cgroup.kill"; fi
+        rmdir "$cg" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+mkdir "$cg"
+echo 33554432 > "$cg/memory.max"
+echo 0 > "$cg/memory.swap.max"
+echo 1 > "$cg/memory.oom.group"
+result=0
+timeout -s KILL 20 sh -c 'echo $$ > "$1/cgroup.procs"; exec "$2" 64 50' \
+    sadboard "$cg" "$tools/memory-$mode" > "$run/memory-$mode.out" 2>&1 || result=$?
+cat "$run/memory-$mode.out"
+cat "$cg/memory.events" > "$run/memory-$mode.events"
+cat "$cg/memory.peak" > "$run/memory-$mode.peak"
+echo "$result" > "$run/memory-$mode.exit"
+oom=0
+while read -r name value; do
+    if [ "$name" = oom_kill ]; then oom=$value; fi
+done < "$run/memory-$mode.events"
+echo "[sadboard] [INFO] memory-$mode exit=$result oom_kill=$oom limit=33554432 evidence=$run"
+if [ "$mode" = bug ] && [ "$result" = 137 ] && [ "$oom" -gt 0 ]; then
+    exit 137
+fi
+case "$mode:$result:$oom" in
+    fixed:0:0) grep -q '"chunks":64,"checksum":532480' "$run/memory-fixed.out" ;;
+    *) echo '[sadboard] [ERROR] Unexpected memory result; inspect saved events' >&2; exit 70 ;;
+esac

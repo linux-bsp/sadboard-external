@@ -1,0 +1,12 @@
+# This AM625 development image reports boot health and installs OTA publications.
+FWCTLD_ENABLED=1
+FWCTLD_SERVER="http://192.168.10.246:8090"
+FWCTLD_CACHE="/data/fwctld"
+# Debug images are larger; retain only the current completed package.
+FWCTLD_CACHE_KEEP=1
+FWCTLD_STATE="/data/fwctld-state"
+FWCTLD_INTERVAL=15
+FWCTLD_AUTO_INSTALL=1
+FWCTLD_DEVICE_ID=""
+FWCTLD_CONSOLE="/dev/console"
+FWCTLD_INTERFACE="eth0"

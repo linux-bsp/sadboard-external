@@ -2,3 +2,9 @@ __pycache__/
 *.py[cod]
 /package/sadboard-labs/crash-bug
 /package/sadboard-labs/crash-fixed
+/package/sadboard-labs/cpu-bug
+/package/sadboard-labs/cpu-fixed
+/package/sadboard-labs/memory-bug
+/package/sadboard-labs/memory-fixed
+/package/sadboard-labs/lock-bug
+/package/sadboard-labs/lock-fixed

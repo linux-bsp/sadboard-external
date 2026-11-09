@@ -1,35 +1,72 @@
 #!/bin/sh
 set -eu
 tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
+new_run() {
+    root=${SADBOARD_RESULTS:-/data/sadboard}
+    mkdir -p "$root"
+    run=$(mktemp -d "$root/$1-XXXXXXXX")
+    echo "[sadboard] [INFO] Scenario=$1 results=$run"
+}
+usage() {
+    echo 'Usage: sadboard {list|run CASE|verify CASE}; CASE=crash|oom|cpu|lock' >&2
+    exit 64
+}
 case "${1:-}" in
     list)
         echo 'crash  Application exits on an unknown record; GDB/core exercise'
+        echo 'oom    Memory grows until a dedicated 32 MiB cgroup kills the child'
+        echo 'cpu    Repeated table lookup consumes CPU; perf exercise'
+        echo 'lock   Two workers wait while a mutex covers simulated I/O'
         ;;
     run)
-        [ "$#" = 2 ] && [ "$2" = crash ] || { echo 'Usage: sadboard run crash' >&2; exit 64; }
-        root=${SADBOARD_RESULTS:-/data/sadboard}
-        mkdir -p "$root"
-        run=$(mktemp -d "$root/crash-XXXXXXXX")
-        cd "$run"
-        # BusyBox ash uses 512-byte blocks for RLIMIT_CORE: 32 MiB.
-        ulimit -c 65536
-        echo "[sadboard] [INFO] Scenario=crash results=$run"
-        exec "$tools/crash-bug" 42
+        [ "$#" = 2 ] || usage
+        case "$2" in
+            crash)
+                new_run crash
+                cd "$run"
+                # BusyBox ash uses 512-byte blocks for RLIMIT_CORE: 32 MiB.
+                ulimit -c 65536
+                exec "$tools/crash-bug" 42 ;;
+            oom) new_run oom; exec "$tools/run-memory" bug "$run" ;;
+            cpu) new_run cpu; timeout -s KILL 30 "$tools/cpu-bug" 4096 500000 42 > "$run/cpu-bug.out"; cat "$run/cpu-bug.out" ;;
+            lock) new_run lock; timeout -s KILL 20 "$tools/lock-bug" 20 50000 > "$run/lock-bug.out"; cat "$run/lock-bug.out" ;;
+            *) usage ;;
+        esac
         ;;
     verify)
-        [ "$#" = 2 ] && [ "$2" = crash ] || { echo 'Usage: sadboard verify crash' >&2; exit 64; }
-        "$tools/crash-fixed" 1
-        if "$tools/crash-fixed" 42; then
-            echo '[sadboard] [ERROR] Missing record incorrectly accepted' >&2
-            exit 1
-        else
-            result=$?
-            [ "$result" = 2 ] || exit "$result"
-        fi
-        echo '[sadboard] [INFO] Reference repair passed: valid input works; missing record returns 2'
+        [ "$#" = 2 ] || usage
+        case "$2" in
+            crash)
+                "$tools/crash-fixed" 1
+                if "$tools/crash-fixed" 42; then
+                    echo '[sadboard] [ERROR] Missing record incorrectly accepted' >&2
+                    exit 1
+                else
+                    result=$?
+                    [ "$result" = 2 ] || exit "$result"
+                fi
+                echo '[sadboard] [INFO] Reference repair passed: valid input works; missing record returns 2' ;;
+            oom)
+                new_run oom-verify
+                result=0
+                "$tools/run-memory" bug "$run" || result=$?
+                [ "$result" = 137 ] || exit 70
+                "$tools/run-memory" fixed "$run"
+                echo '[sadboard] [INFO] Reference repair passed: cgroup OOM reproduced; fixed workload completed' ;;
+            cpu|lock)
+                new_run "$2-verify"
+                if [ "$2" = cpu ]; then set -- "$2" 4096 500000 42; else set -- "$2" 20 50000; fi
+                name=$1; shift
+                timeout -s KILL 30 "$tools/$name-bug" "$@" > "$run/$name-bug.out"
+                timeout -s KILL 30 "$tools/$name-fixed" "$@" > "$run/$name-fixed.out"
+                cat "$run/$name-bug.out" "$run/$name-fixed.out"
+                if [ "$name" = cpu ]; then field=checksum; else field=completed; fi
+                bad=$(sed -n "s/.*\"$field\":\([0-9]*\).*/\1/p" "$run/$name-bug.out")
+                good=$(sed -n "s/.*\"$field\":\([0-9]*\).*/\1/p" "$run/$name-fixed.out")
+                [ -n "$bad" ] && [ "$bad" = "$good" ]
+                echo '[sadboard] [INFO] Reference business results match; compare saved timings and profiling evidence' ;;
+            *) usage ;;
+        esac
         ;;
-    *)
-        echo 'Usage: sadboard {list|run crash|verify crash}' >&2
-        exit 64
-        ;;
+    *) usage ;;
 esac

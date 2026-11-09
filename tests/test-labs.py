@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the intentional defect, reference repair and command boundaries."""
 import os
+import json
 from pathlib import Path
 import resource
 import shutil
@@ -58,6 +59,38 @@ class Labs(unittest.TestCase):
             result = subprocess.run(['sh', str(self.build / 'sadboard'), *args],
                                     env=env, capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 64)
+
+    def test_cpu_lookup_preserves_every_query(self):
+        for items, queries, seed in ((1, 4, 0), (97, 1000, 42), (4096, 5000, 4294967295)):
+            state, checksum = seed, 0
+            for _ in range(queries):
+                state = (state * 1664525 + 1013904223) & 0xffffffff
+                checksum += (state % items) * 3 + 7
+            for mode in ('bug', 'fixed'):
+                result = self.execute('cpu-' + mode, str(items), str(queries), str(seed))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)['checksum'], checksum)
+
+    def test_memory_repair_preserves_work(self):
+        for mode in ('bug', 'fixed'):
+            result = self.execute('memory-' + mode, '4', '0')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), dict(chunks=4, checksum=2560))
+
+    def test_workers_complete_the_same_work(self):
+        for mode in ('bug', 'fixed'):
+            result = self.execute('lock-' + mode, '4', '1000')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['completed'], 8)
+
+    def test_workloads_reject_unbounded_or_invalid_arguments(self):
+        for name, args in (('cpu', ('16384', '2000000', '42')),
+                           ('cpu', ('4096', '2', '4294967296')),
+                           ('memory', ('128', '200')), ('lock', ('200', '100000')),
+                           ('memory', ('129', '0')), ('lock', ('0', '1')),
+                           ('cpu', ('-1', '1', '1'))):
+            for mode in ('bug', 'fixed'):
+                self.assertEqual(self.execute(name + '-' + mode, *args).returncode, 64)
 
 
 if __name__ == '__main__':
