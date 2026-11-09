@@ -20,6 +20,11 @@ mkdir "$cg"
 echo 33554432 > "$cg/memory.max"
 echo 0 > "$cg/memory.swap.max"
 echo 1 > "$cg/memory.oom.group"
+{
+    printf 'memory.max='; cat "$cg/memory.max"
+    printf 'memory.swap.max='; cat "$cg/memory.swap.max"
+    printf 'memory.oom.group='; cat "$cg/memory.oom.group"
+} > "$run/memory-$mode.limits"
 result=0
 timeout -s KILL 20 sh -c 'echo $$ > "$1/cgroup.procs"; exec "$2" 64 50' \
     sadboard "$cg" "$tools/memory-$mode" > "$run/memory-$mode.out" 2>&1 || result=$?

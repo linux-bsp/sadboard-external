@@ -1,11 +1,14 @@
 CC ?= cc
 CFLAGS ?= -Wall -Wextra
 DEBUG_FLAGS = -std=c11 -g3 -O0 -fno-omit-frame-pointer -fno-inline -fdebug-prefix-map=$(CURDIR)=/usr/src/sadboard
-PROGRAMS = crash-bug crash-fixed cpu-bug cpu-fixed memory-bug memory-fixed lock-bug lock-fixed
+PROGRAMS = crash-bug crash-fixed cpu-bug cpu-fixed memory-bug memory-fixed lock-bug lock-fixed check-result
 INSTALL ?= install
 
 .PHONY: all install clean
 all: $(PROGRAMS)
+
+check-result: src/check-result.c src/lab.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) $< $(LDFLAGS) -o $@
 
 crash-bug: src/crash.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) $< $(LDFLAGS) -o $@

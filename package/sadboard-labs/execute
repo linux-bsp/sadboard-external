@@ -29,7 +29,8 @@ case "${1:-}" in
                 # BusyBox ash uses 512-byte blocks for RLIMIT_CORE: 32 MiB.
                 ulimit -c 65536
                 result=0
-                "$tools/crash-bug" "${3:-42}" || result=$?
+                "$tools/crash-bug" "${3:-42}" > "$run/crash-bug.out" || result=$?
+                cat "$run/crash-bug.out"
                 exit "$result" ;;
             oom) new_run oom; exec "$tools/run-memory" bug "$run" ;;
             cpu) new_run cpu; timeout -s KILL 30 "$tools/cpu-bug" "${3:-4096}" "${4:-500000}" "${5:-42}" > "$run/cpu-bug.out"; cat "$run/cpu-bug.out" ;;
@@ -43,16 +44,22 @@ case "${1:-}" in
         [ "$#" -ge 2 ] || usage
         case "$2" in
             crash)
-                normal=$("$tools/crash-fixed" 1)
+                new_run crash-verify
+                "$tools/crash-fixed" 1 > "$run/crash-valid.out"
+                normal=$(cat "$run/crash-valid.out")
                 [ "$normal" = 'record=1 value=64' ] || exit 1
                 echo "$normal"
-                if "$tools/crash-fixed" 42; then
+                result=0
+                if "$tools/crash-fixed" 42 > "$run/crash-missing.out" 2> "$run/crash-missing.err"; then
                     echo '[sadboard] [ERROR] Missing record incorrectly accepted' >&2
                     exit 1
                 else
                     result=$?
                     [ "$result" = 2 ] || exit "$result"
                 fi
+                echo "$result" > "$run/crash-missing.exit"
+                cat "$run/crash-missing.err" >&2
+                "$tools/check-result" crash verify "$run" 0
                 echo '[sadboard] [INFO] Reference repair passed: valid input works; missing record returns 2' ;;
             oom)
                 new_run oom-verify
@@ -60,8 +67,12 @@ case "${1:-}" in
                 "$tools/run-memory" bug "$run" || result=$?
                 [ "$result" = 137 ] || exit 70
                 "$tools/run-memory" fixed "$run"
+                "$tools/check-result" oom verify "$run" 0
                 echo '[sadboard] [INFO] Reference repair passed: cgroup OOM reproduced; fixed workload completed' ;;
-            network) new_run network-verify; exec "$tools/run-network" verify "$run" ;;
+            network)
+                new_run network-verify
+                "$tools/run-network" verify "$run"
+                "$tools/check-result" network verify "$run" 0 ;;
             cpu|lock)
                 new_run "$2-verify"
                 if [ "$2" = cpu ]; then set -- "$2" "${3:-4096}" "${4:-500000}" "${5:-42}"; else set -- "$2" "${3:-20}" "${4:-50000}"; fi
@@ -69,13 +80,7 @@ case "${1:-}" in
                 timeout -s KILL 30 "$tools/$name-bug" "$@" > "$run/$name-bug.out"
                 timeout -s KILL 30 "$tools/$name-fixed" "$@" > "$run/$name-fixed.out"
                 cat "$run/$name-bug.out" "$run/$name-fixed.out"
-                if [ "$name" = cpu ]; then field=checksum; else field=completed; fi
-                bad=$(sed -n "s/.*\"$field\":\([0-9]*\).*/\1/p" "$run/$name-bug.out")
-                good=$(sed -n "s/.*\"$field\":\([0-9]*\).*/\1/p" "$run/$name-fixed.out")
-                if [ -z "$bad" ] || [ "$bad" != "$good" ]; then
-                    echo '[sadboard] [ERROR] Missing or inconsistent business result' >&2
-                    exit 1
-                fi
+                "$tools/check-result" "$name" verify "$run" 0 "$@"
                 echo '[sadboard] [INFO] Reference business results match; compare saved timings and profiling evidence' ;;
             *) usage ;;
         esac

@@ -151,25 +151,16 @@ EOF
         [ "$(read_field cancelled "$run/result")" = 0 ] || exit 1
         op=$(read_field operation "$run/run.info")
         scenario=$(read_field case "$run/run.info")
-        if [ "$op" = verify ]; then
-            [ "$code" = 0 ] || exit 1
-            case "$scenario" in
-                crash|oom) grep -q 'Reference repair passed' "$run/stdout.log" ;;
-                cpu|lock) grep -q 'Reference business results match' "$run/stdout.log" ;;
-                network) grep -q 'Reference network repair passed' "$run/stdout.log" ;;
-                *) exit 1 ;;
+        set --
+        while IFS= read -r line; do
+            case "$line" in
+                argument=*)
+                    value=${line#argument=}
+                    case "$value" in ''|*[!0-9]*|????????????*) error 'Invalid recorded parameter' ;; esac
+                    set -- "$@" "$value" ;;
             esac
-            exit
-        fi
-        case "$scenario:$code" in
-            crash:139) [ -n "$(find "$run" -maxdepth 1 -name 'core.crash-bug.*' -type f)" ] ;;
-            crash:0) grep -q 'record=1 value=64' "$run/stdout.log" ;;
-            oom:137) grep -Eq '^oom_kill [1-9][0-9]*$' "$run/memory-bug.events" ;;
-            cpu:0) grep -q '"checksum":' "$run/cpu-bug.out" ;;
-            lock:0) grep -q '"completed":' "$run/lock-bug.out" ;;
-            network:0) [ -s "$run/network.pcap" ] && grep -q 'delay 100ms' "$run/delayed.qdisc" ;;
-            *) exit 1 ;;
-        esac
+        done < "$run/run.info"
+        exec "$tools/check-result" "$scenario" "$op" "$run" "$code" "$@"
         ;;
     *) usage ;;
 esac
