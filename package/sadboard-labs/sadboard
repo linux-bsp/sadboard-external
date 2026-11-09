@@ -3,16 +3,25 @@
 set -eu
 umask 077
 tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
-root=${SADBOARD_RESULTS:-/data/sadboard}
 usage() {
-    echo 'Usage: sadboard list | {run|verify} CASE [NUMERIC_ARGS] | {status|check|reset} RUN_DIRECTORY' >&2
+    echo 'Usage: sadboard {list|results} | {run|verify} CASE [NUMERIC_ARGS] | {status|check|reset|share} RUN_DIRECTORY' >&2
     echo 'CASE: crash [KEY], oom, cpu [ITEMS QUERIES SEED], lock [ITERATIONS DELAY_US], fd [REQUESTS DELAY_MS], network, panic (run only)' >&2
     exit 64
 }
 error() { echo "[sadboard] [ERROR] $*" >&2; exit 75; }
 read_field() { sed -n "s/^$1=//p" "$2"; }
+load_results() {
+    . "$tools/results.sh"
+    root=$(sadboard_results_root) || error 'Cannot select result directory'
+}
 case "${1:-}" in
     list) [ "$#" = 1 ] || usage; exec sh "$tools/execute" list ;;
+    results)
+        [ "$#" = 1 ] || usage
+        load_results
+        sadboard_results_prepare "$root" || error 'Cannot prepare result directory'
+        cd "$root" && pwd -P
+        ;;
     run|verify)
         [ "$#" -ge 2 ] || usage
         operation=$1; scenario=$2
@@ -40,12 +49,18 @@ case "${1:-}" in
         if [ "$scenario" != panic ]; then
             [ -f /run/fwctl-boot-confirmed ] || error 'Wait for local boot health confirmation'
         fi
-        [ "$(cat /run/device-manager/storage-state)" = persistent ] || error 'Persistent data storage is unavailable'
-        available=$(df -Pk /data | { read -r header; read -r source blocks used free rest; echo "$free"; })
-        case "$available" in ''|*[!0-9]*) error 'Cannot read free data space' ;; esac
-        [ "$available" -ge 65536 ] || error 'At least 64 MiB of free data space is required; archive old evidence first'
-        mkdir -p "$root"
+        load_results
+        sadboard_results_prepare "$root" || error 'Cannot prepare result directory'
         root=$(cd "$root" && pwd -P)
+        filesystem=$(sadboard_results_filesystem "$root") || error 'Cannot determine result filesystem'
+        run_umask=0077
+        case "$filesystem" in
+            nfs|nfs4) run_umask=0022; umask 022 ;;
+            *) [ "$(cat /run/device-manager/storage-state)" = persistent ] || error 'Persistent data storage is unavailable' ;;
+        esac
+        available=$(df -Pk "$root" | { read -r header; read -r source blocks used free rest; echo "$free"; })
+        case "$available" in ''|*[!0-9]*) error 'Cannot read free data space' ;; esac
+        [ "$available" -ge 65536 ] || error 'Result filesystem needs at least 64 MiB free; archive old evidence first'
         # Public machine interface; do not parse a private fwctld journal.
         status=$(timeout -s KILL 10 "$tools/boot-context") || error 'Cannot read boot context'
         read -r format booted active pending v0 g0 s0 id0 v1 g1 s1 id1 extra <<EOF
@@ -73,6 +88,7 @@ EOF
         fi
         case "$firmware" in *[!0-9a-f]*) error 'Invalid firmware content ID' ;; esac
         run=$(mktemp -d "$root/$scenario-$(date +%Y%m%dT%H%M%S)-XXXXXXXX")
+        case "$filesystem" in nfs|nfs4) chmod go+rx "$run" ;; esac
         unit=sadboard-${run##*/}.service
         tag=v$((version >> 16)).$(((version >> 8) & 255)).$((version & 255))
         {
@@ -83,6 +99,7 @@ EOF
             echo "started=$(date '+%Y-%m-%dT%H:%M:%S%z')"
             echo "boot_id=$(cat /proc/sys/kernel/random/boot_id)"
             echo "boot_mode=$boot_mode"
+            echo "results_filesystem=$filesystem"
             echo "firmware_tag=$tag"
             echo "firmware_id=$firmware"
             echo "kernel=$(uname -r)"
@@ -101,7 +118,7 @@ EOF
             --property=RuntimeMaxSec=30s --property=TimeoutStopSec=5s \
             --property=KillMode=control-group --property=MemoryMax=134217728 \
             --property=TasksMax=16 --property=LimitCORE=33554432 \
-            --property=UMask=0077 \
+            --property="UMask=$run_umask" \
             --property="WorkingDirectory=$run" \
             --property="StandardOutput=append:$run/stdout.log" \
             --property="StandardError=append:$run/stderr.log" \
@@ -119,19 +136,27 @@ EOF
             echo "finished=$(date '+%Y-%m-%dT%H:%M:%S%z')"
         } > "$run/result.new"
         mv "$run/result.new" "$run/result"
+        sadboard_results_share "$run" || error "Cannot make evidence host-readable (experiment exit=$result)"
         for log in "$run/stdout.log" "$run/stderr.log"; do
             if [ -f "$log" ]; then cat "$log"; fi
         done
         echo "[sadboard] [INFO] exit=$result evidence=$run"
         exit "$result"
         ;;
-    status|check|reset)
+    status|check|reset|share)
         [ "$#" = 2 ] || usage
         operation=$1
+        load_results
         root=$(cd "$root" && pwd -P)
         [ ! -L "$2" ] && [ -d "$2" ] || error 'Use an existing experiment directory'
         run=$(cd "$2" && pwd -P)
-        [ "${run%/*}" = "$root" ] && [ -f "$run/run.info" ] || error 'Directory is not a managed experiment'
+        [ "${run%/*}" = "$root" ] || error 'Directory is outside the result root'
+        if [ "$operation" = share ]; then
+            sadboard_results_share "$run" || error 'Cannot make evidence host-readable'
+            echo "[sadboard] [INFO] Evidence ready for host access: $run"
+            exit 0
+        fi
+        [ -f "$run/run.info" ] || error 'Directory is not a managed experiment'
         [ "$(read_field format "$run/run.info")" = SADBOARD1 ] || error 'Unknown experiment format'
         unit=sadboard-${run##*/}.service
         [ "$(read_field unit "$run/run.info")" = "$unit" ] || error 'Experiment unit mismatch'

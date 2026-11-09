@@ -2,9 +2,13 @@
 set -eu
 tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
 new_run() {
-    root=${SADBOARD_RESULTS:-/data/sadboard}
-    mkdir -p "$root"
+    . "${0%/*}/results.sh"
+    root=$(sadboard_results_root)
+    sadboard_results_prepare "$root"
     run=${SADBOARD_RUN:-$(mktemp -d "$root/$1-XXXXXXXX")}
+    case "$(sadboard_results_filesystem "$(cd "$run" && pwd -P)")" in
+        nfs|nfs4) umask 022; chmod go+rx "$run" ;;
+    esac
     echo "[sadboard] [INFO] Scenario=$1 results=$run"
 }
 usage() {

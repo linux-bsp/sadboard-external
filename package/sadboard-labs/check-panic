@@ -33,4 +33,6 @@ logctl export --output "$run/recovery.tar.gz"
     echo 'health_confirmed=1'
 } > "$run/recovery.result.new"
 mv "$run/recovery.result.new" "$run/recovery.result"
+. "${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}/results.sh"
+sadboard_results_share "$run"
 echo '[sadboard] [INFO] Panic observed in persistent evidence; next boot healthy on the same firmware; archive exported'

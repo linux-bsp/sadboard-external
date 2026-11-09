@@ -10,7 +10,9 @@ SadBoard 的 Buildroot 实验层，与 `bsp-base-external` 同时加载。主项
 
 `board/am625/uboot-netboot.config` 默认启用独立的 `CONFIG_AM62X_BOOT_TFTP_KERNEL` 和
 `CONFIG_AM62X_BOOT_NFS_ROOT`，分别映射到 U-Boot 的 `tftp_kernel`、`nfs_root`。
-普通 BSP 两项均关闭。任一网络模式停用生产 OTA/槽位确认，使用独立调试健康门禁和 SBNET1 参考构建记录；SD `/data` 仍保存实验与日志。部署用 `scripts/deploy-netboot.py`，完整四模式配置和操作见工作区教材。
+普通 BSP 两项均关闭。任一网络模式停用生产 OTA/槽位确认，使用独立调试健康门禁和 SBNET1 参考构建记录。NFS 根下的实验结果默认写 `/srv/sadboard`，主机可直接访问；本地根仍写 `/data/sadboard`。SD `/data` 保存设备日志和启动状态。部署用 `scripts/deploy-netboot.py`，完整四模式配置和操作见工作区教材。
+
+`sadboard results` 显示当前结果目录，`SADBOARD_RESULTS` 可覆盖它。NFS 实验结束后自动开放产物读取权限；手工生成的 perf/core/trace 文件可用 `sadboard share 结果子目录` 开放主机读取。空间检查针对结果所在的实际文件系统。
 
 ## 标准 defconfig 构建
 
@@ -90,6 +92,7 @@ git -C sadboard-external diff -- configs/sadboard_am625_debug_defconfig
 ```sh
 python3 sadboard-external/tests/test-labs.py
 python3 sadboard-external/tests/test-netboot.py
+python3 sadboard-external/tests/test-results.py
 ```
 
 配置与构建成功、真实 OTA success、工具和场景实机通过分别记录，不混作一个结论。
