@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the intentional defect, reference repair and command boundaries."""
 import os
+import importlib.util
 import json
 from pathlib import Path
 import resource
@@ -20,7 +21,7 @@ class Labs(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory(prefix='sadboard-labs-')
         cls.build = Path(cls.tmp.name) / 'build'
         shutil.copytree(SOURCE, cls.build)
-        subprocess.run(['make', '-C', str(cls.build), 'CFLAGS=-Wall -Wextra -Werror'], check=True,
+        subprocess.run(['make', '-B', '-C', str(cls.build), 'CFLAGS=-Wall -Wextra -Werror'], check=True,
                        stdout=subprocess.DEVNULL)
 
     @classmethod
@@ -32,6 +33,24 @@ class Labs(unittest.TestCase):
             resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         return subprocess.run([str(self.build / binary), *args], capture_output=True,
                               text=True, preexec_fn=no_core, timeout=5)
+
+    def test_debug_gate_rejects_wrong_architecture_and_truncated_elf(self):
+        spec = importlib.util.spec_from_file_location('debug_verifier', SOURCE.parents[1] / 'scripts/verify-debug.py')
+        verifier = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(verifier)
+        path = Path(self.tmp.name) / 'elf-header'
+        header = bytearray(64)
+        header[:6] = b'\x7fELF\x02\x01'
+        header[18:20] = (183).to_bytes(2, 'little')
+        path.write_bytes(header)
+        verifier.target_elf(path)
+        for machine in (62, 40):  # x86-64 and ARM32 are not the AM625 target.
+            bad = bytearray(header); bad[18:20] = machine.to_bytes(2, 'little')
+            path.write_bytes(bad)
+            with self.assertRaises(ValueError): verifier.target_elf(path)
+        for bad in (header[:20], b'#!/bin/sh\n', header[:5] + b'\x02' + header[6:]):
+            path.write_bytes(bad)
+            with self.assertRaises(ValueError): verifier.target_elf(path)
 
     def test_descriptor_exhaustion_and_close_preserve_work(self):
         before = resource.getrlimit(resource.RLIMIT_NOFILE)
@@ -171,6 +190,64 @@ class Labs(unittest.TestCase):
 
     def check_evidence(self, directory, case, mode, code, *args):
         return self.execute('check-result', case, mode, str(directory), str(code), *map(str, args))
+
+    def test_deadline_raw_timestamps_and_preserved_jobs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            p = Path(directory)
+            for mode in ('bug', 'fixed'):
+                result = self.execute('deadline-' + mode, '20', '2000', '500', str(p / ('deadline-' + mode + '.csv')))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                (p / ('deadline-' + mode + '.out')).write_text(result.stdout)
+                self.assertEqual(json.loads(result.stdout)['completed'], 20)
+            self.assertEqual(self.check_evidence(p, 'deadline', 'verify', 0, 20, 2000, 500).returncode, 0)
+            csv = p / 'deadline-fixed.csv'; original = csv.read_text()
+            csv.write_text('\n'.join(original.splitlines()[:-1]) + '\n')
+            self.assertEqual(self.check_evidence(p, 'deadline', 'verify', 0, 20, 2000, 500).returncode, 1)
+            csv.write_text(original)
+            metrics = p / 'deadline-fixed.out'; data = json.loads(metrics.read_text()); data['p99_ns'] += 1
+            metrics.write_text(json.dumps(data))
+            self.assertEqual(self.check_evidence(p, 'deadline', 'verify', 0, 20, 2000, 500).returncode, 1)
+
+    def test_backlog_bounds_live_memory_without_dropping_work(self):
+        with tempfile.TemporaryDirectory() as directory:
+            p = Path(directory)
+            for mode in ('bug', 'fixed'):
+                result = self.execute('backlog-' + mode, '32', '4', str(p / ('backlog-' + mode + '.csv')))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                (p / ('backlog-' + mode + '.out')).write_text(result.stdout)
+                data = json.loads(result.stdout)
+                self.assertEqual((data['completed'], data['allocations'], data['frees'], data['final_live_bytes']), (32, 32, 32, 0))
+                if mode == 'fixed':self.assertLessEqual(data['peak_live_bytes'], 9 * 4096)
+                else:self.assertGreater(data['peak_queue'], 8)
+            self.assertEqual(self.check_evidence(p, 'backlog', 'verify', 0, 32, 4).returncode, 0)
+            metrics = p / 'backlog-fixed.out'; data = json.loads(metrics.read_text()); data['completed'] -= 1
+            metrics.write_text(json.dumps(data))
+            self.assertEqual(self.check_evidence(p, 'backlog', 'verify', 0, 32, 4).returncode, 1)
+
+    def test_tcp_stream_and_batching_contract_on_real_loopback_sockets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            p = Path(directory);calls = []
+            for mode in ('bug', 'fixed'):
+                result = self.execute('tcp-' + mode, '512')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                (p / ('tcp-' + mode + '.out')).write_text(result.stdout)
+                data = json.loads(result.stdout)
+                self.assertEqual((data['completed'], data['bytes']), (512, 512 * 64))
+                calls.append(data['send_calls'])
+            self.assertLess(calls[1], calls[0])
+            self.assertEqual(self.check_evidence(p, 'tcp', 'verify', 0, 512).returncode, 0)
+            metrics = p / 'tcp-fixed.out'; data = json.loads(metrics.read_text()); data['checksum'] ^= 1
+            metrics.write_text(json.dumps(data))
+            self.assertEqual(self.check_evidence(p, 'tcp', 'verify', 0, 512).returncode, 1)
+
+    def test_advanced_inputs_are_bounded_before_work(self):
+        for binary, args in [('deadline-bug', ('1', '2000', '500', '/dev/null')),
+                             ('deadline-fixed', ('500', '50000', '1', '/dev/null')),
+                             ('deadline-bug', ('20', '1000', '1000', '/dev/null')),
+                             ('backlog-bug', ('15', '64', '/dev/null')),
+                             ('backlog-fixed', ('1025', '64', '/dev/null')),
+                             ('tcp-bug', ('0',)), ('tcp-fixed', ('32769',))]:
+            self.assertEqual(self.execute(binary, *args).returncode, 64)
 
     def test_cpu_checker_requires_complete_correct_work_not_just_a_keyword(self):
         with tempfile.TemporaryDirectory() as directory:

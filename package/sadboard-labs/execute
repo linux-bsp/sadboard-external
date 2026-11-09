@@ -12,8 +12,26 @@ new_run() {
     echo "[sadboard] [INFO] Scenario=$1 results=$run"
 }
 usage() {
-    echo 'Usage: sadboard {list|run CASE|verify CASE}; CASE=crash|oom|cpu|lock|fd|network|panic' >&2
+    echo 'Usage: sadboard {list|run CASE|verify CASE}; CASE=crash|oom|cpu|lock|fd|network|panic|deadline|backlog|tcp' >&2
     exit 64
+}
+advanced() {
+    operation=$1; scenario=$2; shift 2
+    new_run "$scenario-$operation"
+    if [ "$scenario" = tcp ]; then
+        mode=bug; [ "$operation" != verify ] || mode=verify
+        "$tools/run-tcp" "$mode" "$1" "$run"
+    else
+        for mode in bug fixed; do
+            [ "$mode:$operation" != fixed:run ] || break
+            timeout -s KILL 15 "$tools/$scenario-$mode" "$@" "$run/$scenario-$mode.csv" > "$run/$scenario-$mode.out"
+        done
+    fi
+    cat "$run/$scenario-bug.out"
+    if [ "$operation" = verify ]; then
+        cat "$run/$scenario-fixed.out"
+        "$tools/check-result" "$scenario" verify "$run" 0 "$@"
+    fi
 }
 case "${1:-}" in
     list)
@@ -24,6 +42,9 @@ case "${1:-}" in
         echo 'fd     Repeated requests leak descriptors under a process-only limit of 64'
         echo 'network Isolated veth delay; ping, iperf3, tcpdump and tc exercise'
         echo 'panic  Deliberate kernel panic and reboot; check persistent evidence afterwards'
+        echo 'deadline Periodic telemetry drifts despite low CPU; release-time CSV and absolute timers'
+        echo 'backlog Slow downstream consumer causes memory growth; bounded queue and backpressure'
+        echo 'tcp     Many small telemetry writes consume CPU; framed TCP batching in an owned namespace'
         ;;
     run)
         [ "$#" -ge 2 ] || usage
@@ -49,6 +70,9 @@ case "${1:-}" in
                 exit "$result" ;;
             network) new_run network; exec "$tools/run-network" bug "$run" ;;
             panic) new_run panic; exec "$tools/run-panic" "$run" ;;
+            deadline|backlog|tcp)
+                scenario=$2; shift 2
+                advanced run "$scenario" "$@" ;;
             *) usage ;;
         esac
         ;;
@@ -105,6 +129,9 @@ case "${1:-}" in
                 cat "$run/$name-bug.out" "$run/$name-fixed.out"
                 "$tools/check-result" "$name" verify "$run" 0 "$@"
                 echo '[sadboard] [INFO] Reference business results match; compare saved timings and profiling evidence' ;;
+            deadline|backlog|tcp)
+                scenario=$2; shift 2
+                advanced verify "$scenario" "$@" ;;
             *) usage ;;
         esac
         ;;

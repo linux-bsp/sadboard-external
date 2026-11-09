@@ -1,0 +1,21 @@
+#!/bin/sh
+# Exercise loopback TCP in an owned namespace, leaving the management network alone.
+set -eu
+[ "$#" = 3 ] || exit 64
+mode=$1; records=$2; run=$3
+case "$mode" in bug|verify) ;; *) exit 64 ;; esac
+tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
+namespace=sb-tcp-${run##*/}
+owned=0
+cleanup() { [ "$owned" = 0 ] || ip netns del "$namespace"; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+ip netns add "$namespace"; owned=1
+ip -n "$namespace" link set lo up
+ip -n "$namespace" -s link show lo > "$run/tcp-interface-before.txt"
+for version in bug fixed; do
+    [ "$version:$mode" != fixed:bug ] || break
+    ip netns exec "$namespace" timeout -s KILL 15 "$tools/tcp-$version" "$records" > "$run/tcp-$version.out"
+done
+ip -n "$namespace" -s link show lo > "$run/tcp-interface-after.txt"

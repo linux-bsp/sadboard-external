@@ -6,6 +6,7 @@ tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
 usage() {
     echo 'Usage: sadboard {list|results} | {run|verify} CASE [NUMERIC_ARGS] | {status|check|reset|share} RUN_DIRECTORY' >&2
     echo 'CASE: crash [KEY], oom, cpu [ITEMS QUERIES SEED], lock [ITERATIONS DELAY_US], fd [REQUESTS DELAY_MS], network, panic (run only)' >&2
+    echo 'Advanced: deadline [CYCLES PERIOD_US WORK_US], backlog [MESSAGES PAYLOAD_KIB], tcp [RECORDS]' >&2
     exit 64
 }
 error() { echo "[sadboard] [ERROR] $*" >&2; exit 75; }
@@ -26,10 +27,10 @@ case "${1:-}" in
         [ "$#" -ge 2 ] || usage
         operation=$1; scenario=$2
         case "$scenario:$#" in
-            crash:2|oom:2|cpu:2|lock:2|fd:2|network:2) ;;
+            crash:2|oom:2|cpu:2|lock:2|fd:2|network:2|deadline:2|backlog:2|tcp:2) ;;
             panic:2) [ "$operation" = run ] || usage ;;
             crash:3) [ "$operation" = run ] || usage ;;
-            cpu:5|lock:4|fd:4) ;;
+            cpu:5|lock:4|fd:4|deadline:5|backlog:4|tcp:3) ;;
             *) usage ;;
         esac
         shift 2
@@ -39,6 +40,9 @@ case "${1:-}" in
                 cpu:*) set -- 4096 500000 42 ;;
                 lock:*) set -- 20 50000 ;;
                 fd:*) set -- 128 20 ;;
+                deadline:*) set -- 200 10000 2000 ;;
+                backlog:*) set -- 512 64 ;;
+                tcp:*) set -- 8192 ;;
             esac
         fi
         for value in "$@"; do
@@ -170,6 +174,9 @@ EOF
                 if [ "$(read_field case "$run/run.info")" = network ]; then
                     ip netns del "sb-left-${run##*/}" 2>/dev/null || true
                     ip netns del "sb-right-${run##*/}" 2>/dev/null || true
+                fi
+                if [ "$(read_field case "$run/run.info")" = tcp ]; then
+                    ip netns del "sb-tcp-${run##*/}" 2>/dev/null || true
                 fi
             fi
             echo '[sadboard] [INFO] Experiment stopped; evidence retained'

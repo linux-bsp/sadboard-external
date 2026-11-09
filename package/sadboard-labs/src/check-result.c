@@ -342,6 +342,137 @@ static void network(const char *mode)
     }
 }
 
+static void csv_row(FILE *stream, uint64_t values[4])
+{
+    char line[256], *p = line;
+    if (!fgets(line, sizeof(line), stream)) reject("CSV row missing");
+    for (unsigned i = 0; i < 4; i++) {
+        values[i] = number(&p);
+        if (i < 3 && *p++ != ',') reject("CSV separator");
+    }
+    skip_space(&p);
+    if (*p) reject("CSV trailing data");
+}
+
+static FILE *csv_open(const char *name, const char *header)
+{
+    FILE *stream = open_file(name, 1048576);
+    char line[256];
+    if (!fgets(line, sizeof(line), stream) || strcmp(line, header)) reject("CSV header");
+    return stream;
+}
+
+static void csv_end(FILE *stream)
+{
+    if (fgetc(stream) != EOF || ferror(stream)) reject("CSV has extra rows or an I/O error");
+    fclose(stream);
+}
+
+static int compare_u64(const void *a, const void *b)
+{
+    uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
+    return (x > y) - (x < y);
+}
+
+static void deadline_check(const char *mode, int count, char **args)
+{
+    if (count != 3) reject("deadline parameters");
+    unsigned n = lab_number(args[0], 500, 0), period = lab_number(args[1], 50000, 0);
+    unsigned work = lab_number(args[2], 10000, 0);
+    if (n < 2 || work * 2 > period || (uint64_t)n * (period + work) > 5000000) reject("deadline budget");
+    const char *const keys[] = {"cycles", "period_us", "work_us", "completed", "checksum", "cpu_ns",
+        "wall_ns", "p50_ns", "p99_ns", "max_ns", "drift_ns"};
+    uint64_t p99[2] = {0};
+    for (unsigned variant = 0; variant < (!strcmp(mode, "verify") ? 2U : 1U); variant++) {
+        uint64_t v[11], late[500], row[4], first = 0, last_finish = 0, drift = 0;
+        numeric_json(variant ? "deadline-fixed.out" : "deadline-bug.out", keys, 11, v);
+        uint64_t checksum = (uint64_t)3 * n * (n - 1) / 2 + (uint64_t)7 * n;
+        if (v[0] != n || v[1] != period || v[2] != work || v[3] != n || v[4] != checksum)
+            reject("deadline work not preserved");
+        FILE *csv = csv_open(variant ? "deadline-fixed.csv" : "deadline-bug.csv",
+                             "index,release_ns,wake_ns,finish_ns\n");
+        for (unsigned i = 0; i < n; i++) {
+            csv_row(csv, row);
+            if (!i) first = row[1];
+            if (row[0] != i || row[1] != first + (uint64_t)i * period * 1000 ||
+                row[2] < row[1] || row[3] < row[2] || row[3] - row[2] < (uint64_t)work * 1000 ||
+                (i && row[2] < last_finish)) reject("deadline timestamps do not describe sequential complete jobs");
+            late[i] = row[2] - row[1]; last_finish = row[3];
+        }
+        csv_end(csv); drift = late[n - 1];
+        qsort(late, n, sizeof(late[0]), compare_u64);
+        if (v[7] != late[(n + 1) / 2 - 1] || v[8] != late[(99 * n + 99) / 100 - 1] ||
+            v[9] != late[n - 1] || v[10] != drift ||
+            v[6] < last_finish - first + (uint64_t)period * 1000)
+            reject("deadline summary does not match raw samples");
+        if (!variant && drift < (uint64_t)(n - 1) * work * 1000) reject("relative timer drift not reproduced");
+        p99[variant] = v[8];
+    }
+    printf("[sadboard] [INFO] Deadline work and raw timing matched; p99_ns=%" PRIu64 "/%" PRIu64
+           " samples=1 performance_verdict=manual\n", p99[0], p99[1]);
+}
+
+static void backlog_check(const char *mode, int count, char **args)
+{
+    if (count != 2) reject("backlog parameters");
+    unsigned n = lab_number(args[0], 1024, 0), kib = lab_number(args[1], 64, 0);
+    if (n < 16) reject("backlog minimum workload");
+    uint64_t size = (uint64_t)kib * 1024, checksum = 0;
+    for (unsigned i = 0; i < n; i++) checksum += (i & 255) * size;
+    const char *const keys[] = {"messages", "payload_kib", "completed", "checksum", "allocations", "frees",
+        "peak_queue", "peak_live_bytes", "final_live_bytes", "producer_waits", "maxrss_bytes", "wall_ns"};
+    uint64_t peaks[2] = {0};
+    for (unsigned variant = 0; variant < (!strcmp(mode, "verify") ? 2U : 1U); variant++) {
+        uint64_t v[12], row[4], peak_queue = 0, peak_live = 0;
+        numeric_json(variant ? "backlog-fixed.out" : "backlog-bug.out", keys, 12, v);
+        if (v[0] != n || v[1] != kib || v[2] != n || v[3] != checksum ||
+            v[4] != n || v[5] != n || v[8] || v[11] < ((uint64_t)n * 3000 + 100000) * 1000)
+            reject("backlog dropped work, leaked payload or skipped service cost");
+        FILE *csv = csv_open(variant ? "backlog-fixed.csv" : "backlog-bug.csv",
+                             "index,queued,live_payload_bytes,consumed\n");
+        for (unsigned i = 0; i < n; i++) {
+            csv_row(csv, row);
+            if (row[0] != i || !row[1] || row[1] > n || row[3] > i ||
+                row[2] != (i + 1 - row[3]) * size || row[2] < row[1] * size ||
+                row[2] > (row[1] + 1) * size) reject("backlog raw queue accounting");
+            if (row[1] > peak_queue) peak_queue = row[1];
+            if (row[2] > peak_live) peak_live = row[2];
+        }
+        csv_end(csv);
+        if (v[6] != peak_queue || v[7] != peak_live) reject("backlog peak not supported by raw samples");
+        if (variant ? (v[6] > 8 || v[7] > 9 * size || !v[9]) : v[6] <= 8)
+            reject("backlog or bounded backpressure not demonstrated");
+        peaks[variant] = v[7];
+    }
+    printf("[sadboard] [INFO] Backlog preserved %u messages; peak_live_bytes=%" PRIu64 "/%" PRIu64
+           "; RSS and allocator retention require separate analysis\n", n, peaks[0], peaks[1]);
+}
+
+static void tcp_check(const char *mode, int count, char **args)
+{
+    if (count != 1) reject("TCP parameters");
+    unsigned n = lab_number(args[0], 32768, 0);
+    if (n < 64) reject("TCP minimum workload");
+    uint64_t checksum = 0, calls[2] = {0};
+    for (unsigned i = 0; i < n; i++) {
+        for (unsigned shift = 0; shift < 32; shift += 8) checksum += (i >> shift) & 255;
+        for (unsigned byte = 4; byte < 64; byte++) checksum += (i * 17 + byte * 3 + 42) & 255;
+    }
+    const char *const keys[] = {"records", "frame_bytes", "completed", "bytes", "checksum",
+        "send_calls", "recv_calls", "cpu_ns", "wall_ns"};
+    for (unsigned variant = 0; variant < (!strcmp(mode, "verify") ? 2U : 1U); variant++) {
+        uint64_t v[9];
+        numeric_json(variant ? "tcp-fixed.out" : "tcp-bug.out", keys, 9, v);
+        if (v[0] != n || v[1] != 64 || v[2] != n || v[3] != (uint64_t)n * 64 ||
+            v[4] != checksum || !v[5] || !v[6] || !v[8]) reject("TCP stream incomplete or corrupt");
+        if (!variant && v[5] < n) reject("per-record send path not reproduced");
+        calls[variant] = v[5];
+    }
+    if (!strcmp(mode, "verify") && calls[1] >= calls[0]) reject("batching did not reduce send calls");
+    printf("[sadboard] [INFO] TCP stream preserved; send_calls=%" PRIu64 "/%" PRIu64
+           "; send calls are not wire packets\n", calls[0], calls[1]);
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 5) return 64;
@@ -375,6 +506,11 @@ int main(int argc, char **argv)
     } else if (!strcmp(scenario, "network")) {
         if (argc != 5 || code) reject("network exit/parameters");
         network(mode);
+    } else if (!strcmp(scenario, "deadline") || !strcmp(scenario, "backlog") || !strcmp(scenario, "tcp")) {
+        if (code) reject("advanced workload did not exit successfully");
+        if (!strcmp(scenario, "deadline")) deadline_check(mode, argc - 5, argv + 5);
+        else if (!strcmp(scenario, "backlog")) backlog_check(mode, argc - 5, argv + 5);
+        else tcp_check(mode, argc - 5, argv + 5);
     } else return 64;
     printf("[sadboard] [INFO] Evidence contract matched: case=%s operation=%s\n", scenario, mode);
     return 0;

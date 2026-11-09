@@ -7,6 +7,15 @@ from pathlib import Path
 import subprocess
 
 
+def target_elf(path):
+    """Reject host binaries even when they retain valid debug sections."""
+    with path.open("rb") as stream:
+        header = stream.read(64)
+    if (len(header) != 64 or header[:6] != b"\x7fELF\x02\x01" or
+            int.from_bytes(header[18:20], "little") != 183):
+        raise ValueError(f"expected little-endian AArch64 ELF64: {path}")
+
+
 def verify(images):
     root = images.resolve() / 'debug'
     metadata = json.loads((root / 'build-info.json').read_text())
@@ -23,15 +32,17 @@ def verify(images):
                 digest.update(block)
         if digest.hexdigest() != expected:
             raise ValueError(f'debugging file changed: {name}')
-    labs = [f'labs/{name}-{mode}' for name in ('crash', 'cpu', 'memory', 'lock', 'fd')
+    labs = [f'labs/{name}-{mode}' for name in ('crash', 'cpu', 'memory', 'lock', 'fd', 'deadline', 'backlog', 'tcp')
             for mode in ('bug', 'fixed')]
     labs.append('labs/check-result')
     required = ['vmlinux', 'System.map', 'kernel.config', 'buildroot.config', 'busybox.config',
                 'source/src/crash.c', 'source/src/cpu.c', 'source/src/memory.c',
-                'source/src/lock.c', 'source/src/fd.c', 'source/src/lab.h', *labs]
+                'source/src/lock.c', 'source/src/fd.c', 'source/src/deadline.c',
+                'source/src/backlog.c', 'source/src/tcp.c', 'source/src/lab.h', *labs]
     if not all(name in metadata['sha256'] for name in required):
         raise ValueError('debugging manifest is incomplete')
     for name in ('vmlinux', *labs):
+        target_elf(root / name)
         sections = subprocess.check_output(['readelf', '--sections', '--wide', str(root / name)], text=True)
         if '.debug_info' not in sections:
             raise ValueError(f'debug symbols were stripped: {name}')

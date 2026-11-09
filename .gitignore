@@ -11,3 +11,9 @@ package/sadboard-labs/check-result
 /package/sadboard-labs/lock-fixed
 /package/sadboard-labs/fd-bug
 /package/sadboard-labs/fd-fixed
+/package/sadboard-labs/deadline-bug
+/package/sadboard-labs/deadline-fixed
+/package/sadboard-labs/backlog-bug
+/package/sadboard-labs/backlog-fixed
+/package/sadboard-labs/tcp-bug
+/package/sadboard-labs/tcp-fixed
