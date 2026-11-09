@@ -25,7 +25,7 @@ def verify(images):
             raise ValueError(f'debugging file changed: {name}')
     labs = [f'labs/{name}-{mode}' for name in ('crash', 'cpu', 'memory', 'lock')
             for mode in ('bug', 'fixed')]
-    required = ['vmlinux', 'System.map', 'kernel.config', 'buildroot.config',
+    required = ['vmlinux', 'System.map', 'kernel.config', 'buildroot.config', 'busybox.config',
                 'source/src/crash.c', 'source/src/cpu.c', 'source/src/memory.c',
                 'source/src/lock.c', 'source/src/lab.h', *labs]
     if not all(name in metadata['sha256'] for name in required):
@@ -36,9 +36,12 @@ def verify(images):
             raise ValueError(f'debug symbols were stripped: {name}')
     config = (root / 'kernel.config').read_text().splitlines()
     for symbol in ('CONFIG_DEBUG_INFO_DWARF4', 'CONFIG_FUNCTION_TRACER', 'CONFIG_MEMCG',
-                   'CONFIG_COREDUMP', 'CONFIG_CORE_DUMP_DEFAULT_ELF_HEADERS'):
+                   'CONFIG_COREDUMP', 'CONFIG_CORE_DUMP_DEFAULT_ELF_HEADERS',
+                   'CONFIG_NET_NS', 'CONFIG_VETH', 'CONFIG_NET_SCH_NETEM'):
         if symbol + '=y' not in config:
             raise ValueError(f'missing kernel capability: {symbol}')
+    if 'CONFIG_FLOAT_DURATION=y' not in (root / 'busybox.config').read_text().splitlines():
+        raise ValueError('fractional BusyBox durations are disabled')
     return identity
 
 

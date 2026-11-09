@@ -17,6 +17,10 @@ for source, name in [(build / 'linux-custom/vmlinux', 'vmlinux'),
                      (build / 'linux-custom/.config', 'kernel.config'),
                      (build.parent / '.config', 'buildroot.config')]:
     shutil.copyfile(source, out / name)
+busybox = list(build.glob('busybox-*/.config'))
+if len(busybox) != 1:
+    raise RuntimeError('Expected one BusyBox configuration in this build tree')
+shutil.copyfile(busybox[0], out / 'busybox.config')
 shutil.rmtree(out / 'labs', ignore_errors=True)
 (out / 'labs').mkdir()
 for path in sorted((target / 'usr/libexec/sadboard').glob('*')):

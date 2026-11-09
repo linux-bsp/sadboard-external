@@ -6,7 +6,7 @@ tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
 root=${SADBOARD_RESULTS:-/data/sadboard}
 usage() {
     echo 'Usage: sadboard list | {run|verify} CASE [NUMERIC_ARGS] | {status|check|reset} RUN_DIRECTORY' >&2
-    echo 'CASE: crash [KEY], oom, cpu [ITEMS QUERIES SEED], lock [ITERATIONS DELAY_US]' >&2
+    echo 'CASE: crash [KEY], oom, cpu [ITEMS QUERIES SEED], lock [ITERATIONS DELAY_US], network, panic (run only)' >&2
     exit 64
 }
 error() { echo "[sadboard] [ERROR] $*" >&2; exit 75; }
@@ -17,7 +17,8 @@ case "${1:-}" in
         [ "$#" -ge 2 ] || usage
         operation=$1; scenario=$2
         case "$scenario:$#" in
-            crash:2|oom:2|cpu:2|lock:2) ;;
+            crash:2|oom:2|cpu:2|lock:2|network:2) ;;
+            panic:2) [ "$operation" = run ] || usage ;;
             crash:3) [ "$operation" = run ] || usage ;;
             cpu:5|lock:4) ;;
             *) usage ;;
@@ -33,7 +34,11 @@ case "${1:-}" in
         for value in "$@"; do
             case "$value" in ''|*[!0-9]*|????????????*) usage ;; esac
         done
-        [ -f /run/fwctl-boot-confirmed ] || error 'Wait for local boot health confirmation'
+        # Panic exercises an unsealed startup of a previously confirmed image.
+        # The FWOTA2 checks below still reject trial/pending firmware.
+        if [ "$scenario" != panic ]; then
+            [ -f /run/fwctl-boot-confirmed ] || error 'Wait for local boot health confirmation'
+        fi
         [ "$(cat /run/device-manager/storage-state)" = persistent ] || error 'Persistent data storage is unavailable'
         available=$(df -Pk /data | { read -r header; read -r source blocks used free rest; echo "$free"; })
         case "$available" in ''|*[!0-9]*) error 'Cannot read free data space' ;; esac
@@ -117,14 +122,28 @@ EOF
         [ "$(read_field unit "$run/run.info")" = "$unit" ] || error 'Experiment unit mismatch'
         case "${run##*/}" in *[!A-Za-z0-9_-]*) error 'Invalid experiment name' ;; esac
         if [ "$operation" = reset ]; then
-            if [ "$(read_field boot_id "$run/run.info")" = "$(cat /proc/sys/kernel/random/boot_id)" ] && systemctl is-active --quiet "$unit"; then
-                : > "$run/cancel.request"
-                systemctl stop "$unit"
+            if [ "$(read_field boot_id "$run/run.info")" = "$(cat /proc/sys/kernel/random/boot_id)" ]; then
+                if systemctl is-active --quiet "$unit"; then
+                    : > "$run/cancel.request"
+                    systemctl stop "$unit"
+                fi
+                if [ "$(read_field case "$run/run.info")" = network ]; then
+                    ip netns del "sb-left-${run##*/}" 2>/dev/null || true
+                    ip netns del "sb-right-${run##*/}" 2>/dev/null || true
+                fi
             fi
             echo '[sadboard] [INFO] Experiment stopped; evidence retained'
             exit 0
         fi
         cat "$run/run.info"
+        if [ "$operation" = check ] && [ "$(read_field case "$run/run.info")" = panic ]; then
+            exec "$tools/check-panic" "$run"
+        fi
+        if [ "$operation" = status ] && [ -f "$run/recovery.result" ]; then
+            cat "$run/recovery.result"
+            echo 'result=recovery-verified'
+            exit 0
+        fi
         [ -f "$run/result" ] || { echo 'result=incomplete (running or interrupted)'; exit 1; }
         cat "$run/result"
         [ "$operation" = check ] || exit 0
@@ -137,6 +156,7 @@ EOF
             case "$scenario" in
                 crash|oom) grep -q 'Reference repair passed' "$run/stdout.log" ;;
                 cpu|lock) grep -q 'Reference business results match' "$run/stdout.log" ;;
+                network) grep -q 'Reference network repair passed' "$run/stdout.log" ;;
                 *) exit 1 ;;
             esac
             exit
@@ -147,6 +167,7 @@ EOF
             oom:137) grep -Eq '^oom_kill [1-9][0-9]*$' "$run/memory-bug.events" ;;
             cpu:0) grep -q '"checksum":' "$run/cpu-bug.out" ;;
             lock:0) grep -q '"completed":' "$run/lock-bug.out" ;;
+            network:0) [ -s "$run/network.pcap" ] && grep -q 'delay 100ms' "$run/delayed.qdisc" ;;
             *) exit 1 ;;
         esac
         ;;

@@ -17,6 +17,8 @@ case "${1:-}" in
         echo 'oom    Memory grows until a dedicated 32 MiB cgroup kills the child'
         echo 'cpu    Repeated table lookup consumes CPU; perf exercise'
         echo 'lock   Two workers wait while a mutex covers simulated I/O'
+        echo 'network Isolated veth delay; ping, iperf3, tcpdump and tc exercise'
+        echo 'panic  Deliberate kernel panic and reboot; check persistent evidence afterwards'
         ;;
     run)
         [ "$#" -ge 2 ] || usage
@@ -32,6 +34,8 @@ case "${1:-}" in
             oom) new_run oom; exec "$tools/run-memory" bug "$run" ;;
             cpu) new_run cpu; timeout -s KILL 30 "$tools/cpu-bug" "${3:-4096}" "${4:-500000}" "${5:-42}" > "$run/cpu-bug.out"; cat "$run/cpu-bug.out" ;;
             lock) new_run lock; timeout -s KILL 20 "$tools/lock-bug" "${3:-20}" "${4:-50000}" > "$run/lock-bug.out"; cat "$run/lock-bug.out" ;;
+            network) new_run network; exec "$tools/run-network" bug "$run" ;;
+            panic) new_run panic; exec "$tools/run-panic" "$run" ;;
             *) usage ;;
         esac
         ;;
@@ -57,6 +61,7 @@ case "${1:-}" in
                 [ "$result" = 137 ] || exit 70
                 "$tools/run-memory" fixed "$run"
                 echo '[sadboard] [INFO] Reference repair passed: cgroup OOM reproduced; fixed workload completed' ;;
+            network) new_run network-verify; exec "$tools/run-network" verify "$run" ;;
             cpu|lock)
                 new_run "$2-verify"
                 if [ "$2" = cpu ]; then set -- "$2" "${3:-4096}" "${4:-500000}" "${5:-42}"; else set -- "$2" "${3:-20}" "${4:-50000}"; fi

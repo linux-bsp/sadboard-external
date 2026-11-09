@@ -31,6 +31,7 @@ install: all
 	$(INSTALL) -D -m 0755 sadboard $(DESTDIR)/usr/bin/sadboard
 	$(INSTALL) -D -m 0755 run-memory $(DESTDIR)/usr/libexec/sadboard/run-memory
 	$(INSTALL) -D -m 0755 execute $(DESTDIR)/usr/libexec/sadboard/execute
+	for script in run-network run-panic check-panic; do $(INSTALL) -m 0755 $$script $(DESTDIR)/usr/libexec/sadboard/; done
 	$(INSTALL) -m 0644 src/*.c src/*.h $(DESTDIR)/usr/src/sadboard/src/
 
 clean:

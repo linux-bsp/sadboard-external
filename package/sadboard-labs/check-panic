@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+[ "$#" = 1 ] || exit 64
+run=$1
+old=$(sed -n 's/^boot_id=//p' "$run/run.info")
+current=$(cat /proc/sys/kernel/random/boot_id)
+[ "$old" != "$current" ] && [ -f /run/fwctl-boot-confirmed ] || exit 1
+logctl boot-state > "$run/boot-after.json"
+grep -q "\"previous_recorded_linux_boot\":\"$old\"" "$run/boot-after.json"
+logctl diagnostic-reason previous > "$run/recovery-reason.txt"
+grep -qx 'DMEVIDENCE1 linux-panic-observed' "$run/recovery-reason.txt"
+fwctl ota-status > "$run/firmware-after.txt"
+# Match the exact booted content ID, not either installed slot.
+read -r format booted active pending v0 g0 s0 id0 v1 g1 s1 id1 extra < "$run/firmware-after.txt"
+expected=$(sed -n 's/^firmware_id=//p' "$run/run.info")
+case "$booted" in
+    0) actual=$id0; good=$g0; state=$s0 ;;
+    1) actual=$id1; good=$g1; state=$s1 ;;
+    *) exit 1 ;;
+esac
+[ "$format:$pending:$actual:$good:$state" = "FWOTA2:255:$expected:1:4" ]
+logctl export --output "$run/recovery.tar.gz"
+{
+    echo "recovery_boot=$current"
+    echo "recovered_at=$(date '+%Y-%m-%dT%H:%M:%S%z')"
+    echo 'panic_observed=1'
+    echo 'firmware_match=1'
+    echo 'health_confirmed=1'
+} > "$run/recovery.result.new"
+mv "$run/recovery.result.new" "$run/recovery.result"
+echo '[sadboard] [INFO] Panic observed in persistent evidence; next boot healthy on the same firmware; archive exported'

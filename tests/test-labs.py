@@ -109,6 +109,7 @@ class Labs(unittest.TestCase):
     def test_controller_rejects_malformed_parameters_before_launch(self):
         for args in (('run', 'cpu', '1', '2'), ('run', 'lock', '1', 'bad'),
                      ('verify', 'crash', '42'), ('run', 'crash', '-1'),
+                     ('verify', 'panic'), ('run', 'network', 'eth0'),
                      ('run', 'cpu', '1', '2', '0;touch /tmp/should-not-exist')):
             result = subprocess.run(['sh', str(self.build / 'sadboard'), *args],
                                     capture_output=True, text=True, timeout=5)

@@ -1,0 +1,33 @@
+#!/bin/sh
+# Explicit operator exercise on an already confirmed firmware, never at boot.
+set -eu
+[ "$#" = 1 ] || exit 64
+run=$1
+[ -w /proc/sysrq-trigger ] && [ -d /sys/fs/pstore ] || exit 75
+[ ! -f /run/fwctl-boot-confirmed ] || {
+    echo '[sadboard] [ERROR] Startup is already sealed; reboot the confirmed firmware and invoke panic before local confirmation' >&2
+    exit 75
+}
+# Keep the activating oneshot intact: stopping it runs its OnFailure policy.
+# SIGSTOP pauses the entire owned service group without reporting a failure.
+intent_recorded=0
+restore_health() {
+    if [ "$intent_recorded" = 1 ]; then logctl boot-event cancel-intent 2>/dev/null || true; fi
+    systemctl kill --kill-whom=all --signal=CONT fw-confirm.service 2>/dev/null || true
+}
+trap restore_health EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+systemctl kill --kill-whom=all --signal=STOP fw-confirm.service
+logctl status > "$run/startup-before.txt"
+grep -qx 'startup-state=collecting' "$run/startup-before.txt"
+logctl boot-event operator
+intent_recorded=1
+logctl boot-state > "$run/boot-before.json"
+cat /proc/sys/kernel/panic > "$run/panic-timeout-before"
+echo 3 > /proc/sys/kernel/panic
+printf 'SadBoard deliberate panic: run=%s boot=%s\n' "${run##*/}" "$(cat /proc/sys/kernel/random/boot_id)" > /dev/kmsg
+echo '[sadboard] [INFO] Deliberately triggering kernel panic; reboot expected in three seconds'
+sync
+echo c > /proc/sysrq-trigger
+exit 70
