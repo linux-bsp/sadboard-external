@@ -45,6 +45,8 @@ else
     ip -n "$left" link set tx0 up
     ip -n "$right" link set rx0 up
 fi
+# Create the readiness channel before the background shell opens its redirects.
+: > "$run/$scenario-tcpdump.err"
 ip netns exec "$left" tcpdump --immediate-mode -i tx0 -nn -s 0 -U -w "$run/$scenario.pcap" > "$run/$scenario-tcpdump.out" 2> "$run/$scenario-tcpdump.err" &
 capture_pid=$!
 attempts=0
