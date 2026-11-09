@@ -1,7 +1,7 @@
 CC ?= cc
 CFLAGS ?= -Wall -Wextra
 DEBUG_FLAGS = -std=c11 -g3 -O0 -fno-omit-frame-pointer -fno-inline -fdebug-prefix-map=$(CURDIR)=/usr/src/sadboard
-PROGRAMS = crash-bug crash-fixed cpu-bug cpu-fixed memory-bug memory-fixed lock-bug lock-fixed check-result
+PROGRAMS = crash-bug crash-fixed cpu-bug cpu-fixed memory-bug memory-fixed lock-bug lock-fixed fd-bug fd-fixed check-result
 INSTALL ?= install
 
 .PHONY: all install clean
@@ -22,10 +22,10 @@ cpu-bug: src/cpu.c src/lab.h
 cpu-fixed: src/cpu.c src/lab.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) -O2 -Wno-unused-function -DSADBOARD_FIXED $< $(LDFLAGS) -o $@
 
-memory-bug lock-bug: %-bug: src/%.c src/lab.h
+memory-bug lock-bug fd-bug: %-bug: src/%.c src/lab.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) $< $(LDFLAGS) -pthread -o $@
 
-memory-fixed lock-fixed: %-fixed: src/%.c src/lab.h
+memory-fixed lock-fixed fd-fixed: %-fixed: src/%.c src/lab.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) -DSADBOARD_FIXED $< $(LDFLAGS) -pthread -o $@
 
 install: all

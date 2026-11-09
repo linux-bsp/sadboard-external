@@ -9,3 +9,5 @@ package/sadboard-labs/check-result
 /package/sadboard-labs/memory-fixed
 /package/sadboard-labs/lock-bug
 /package/sadboard-labs/lock-fixed
+/package/sadboard-labs/fd-bug
+/package/sadboard-labs/fd-fixed

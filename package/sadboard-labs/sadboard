@@ -6,7 +6,7 @@ tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
 root=${SADBOARD_RESULTS:-/data/sadboard}
 usage() {
     echo 'Usage: sadboard list | {run|verify} CASE [NUMERIC_ARGS] | {status|check|reset} RUN_DIRECTORY' >&2
-    echo 'CASE: crash [KEY], oom, cpu [ITEMS QUERIES SEED], lock [ITERATIONS DELAY_US], network, panic (run only)' >&2
+    echo 'CASE: crash [KEY], oom, cpu [ITEMS QUERIES SEED], lock [ITERATIONS DELAY_US], fd [REQUESTS DELAY_MS], network, panic (run only)' >&2
     exit 64
 }
 error() { echo "[sadboard] [ERROR] $*" >&2; exit 75; }
@@ -17,10 +17,10 @@ case "${1:-}" in
         [ "$#" -ge 2 ] || usage
         operation=$1; scenario=$2
         case "$scenario:$#" in
-            crash:2|oom:2|cpu:2|lock:2|network:2) ;;
+            crash:2|oom:2|cpu:2|lock:2|fd:2|network:2) ;;
             panic:2) [ "$operation" = run ] || usage ;;
             crash:3) [ "$operation" = run ] || usage ;;
-            cpu:5|lock:4) ;;
+            cpu:5|lock:4|fd:4) ;;
             *) usage ;;
         esac
         shift 2
@@ -29,6 +29,7 @@ case "${1:-}" in
                 crash:run) set -- 42 ;;
                 cpu:*) set -- 4096 500000 42 ;;
                 lock:*) set -- 20 50000 ;;
+                fd:*) set -- 128 20 ;;
             esac
         fi
         for value in "$@"; do

@@ -23,12 +23,12 @@ def verify(images):
                 digest.update(block)
         if digest.hexdigest() != expected:
             raise ValueError(f'debugging file changed: {name}')
-    labs = [f'labs/{name}-{mode}' for name in ('crash', 'cpu', 'memory', 'lock')
+    labs = [f'labs/{name}-{mode}' for name in ('crash', 'cpu', 'memory', 'lock', 'fd')
             for mode in ('bug', 'fixed')]
     labs.append('labs/check-result')
     required = ['vmlinux', 'System.map', 'kernel.config', 'buildroot.config', 'busybox.config',
                 'source/src/crash.c', 'source/src/cpu.c', 'source/src/memory.c',
-                'source/src/lock.c', 'source/src/lab.h', *labs]
+                'source/src/lock.c', 'source/src/fd.c', 'source/src/lab.h', *labs]
     if not all(name in metadata['sha256'] for name in required):
         raise ValueError('debugging manifest is incomplete')
     for name in ('vmlinux', *labs):

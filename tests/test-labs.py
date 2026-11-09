@@ -33,6 +33,58 @@ class Labs(unittest.TestCase):
         return subprocess.run([str(self.build / binary), *args], capture_output=True,
                               text=True, preexec_fn=no_core, timeout=5)
 
+    def test_descriptor_exhaustion_and_close_preserve_work(self):
+        before = resource.getrlimit(resource.RLIMIT_NOFILE)
+        for mode in ('bug', 'fixed'):
+            r = self.execute('fd-' + mode, '128', '0')
+            v = json.loads(r.stdout)
+            self.assertEqual(v['limit'], 64)
+            self.assertEqual(v['requested'], 128)
+            if mode == 'bug':
+                self.assertEqual((r.returncode, v['error'], v['final_open']), (24, 24, 64))
+                self.assertEqual(v['completed'], 64 - v['baseline'])
+            else:
+                self.assertEqual((r.returncode, v['completed'], v['error']), (0, 128, 0))
+                self.assertEqual(v['final_open'], v['baseline'])
+                self.assertEqual(v['peak_open'], v['baseline'] + 1)
+        self.assertEqual(resource.getrlimit(resource.RLIMIT_NOFILE), before)
+        # Extra inherited descriptors affect capacity, not the correctness criterion.
+        with open('/dev/null') as extra:
+            r = subprocess.run([str(self.build / 'fd-bug'), '128', '0'], pass_fds=(extra.fileno(),),
+                               capture_output=True, text=True, timeout=5)
+        v = json.loads(r.stdout)
+        self.assertGreaterEqual(v['baseline'], 4)
+        self.assertEqual(v['completed'] + v['baseline'], 64)
+
+    def test_descriptor_small_input_is_not_exhaustion_and_limits_are_bounded(self):
+        v = json.loads(self.execute('fd-bug', '4', '0').stdout)
+        self.assertEqual((v['completed'], v['error']), (4, 0))
+        self.assertEqual(v['final_open'], v['baseline'] + 4)
+        for args in (('0', '0'), ('4097', '0'), ('128', '51'), ('4096', '50'), ('-1', '0'), ('bad', '0'), ('1',)):
+            self.assertEqual(self.execute('fd-bug', *args).returncode, 64)
+        def low_limit():
+            resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
+        r = subprocess.run([str(self.build / 'fd-bug'), '4', '0'], preexec_fn=low_limit,
+                           capture_output=True, timeout=5)
+        self.assertEqual(r.returncode, 75)
+
+    def test_descriptor_reference_and_evidence_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp)
+            env = dict(os.environ, SADBOARD_LIBEXEC=str(self.build), SADBOARD_RUN=tmp, SADBOARD_RESULTS=tmp)
+            r = subprocess.run(['sh', str(self.build / 'execute'), 'verify', 'fd', '128', '0'],
+                               env=env, capture_output=True, text=True, timeout=5)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self.check_evidence(p, 'fd', 'verify', 0, '128', '0').returncode, 0)
+            original = (p / 'fd-fixed.out').read_text()
+            wrong = json.loads(original);wrong['completed'] = 1
+            (p / 'fd-fixed.out').write_text(json.dumps(wrong))
+            self.assertEqual(self.check_evidence(p, 'fd', 'verify', 0, '128', '0').returncode, 1)
+            (p / 'fd-fixed.out').write_text(original)
+            self.assertEqual(self.check_evidence(p, 'fd', 'verify', 0, '127', '0').returncode, 1)
+            (p / 'fd-bug.exit').write_text('0\n')
+            self.assertEqual(self.check_evidence(p, 'fd', 'verify', 0, '128', '0').returncode, 1)
+
     def test_fault_is_missing_record_only(self):
         self.assertEqual(self.execute('crash-bug', '1').stdout, 'record=1 value=64\n')
         self.assertEqual(self.execute('crash-bug', '42').returncode, -signal.SIGSEGV)

@@ -8,7 +8,7 @@ new_run() {
     echo "[sadboard] [INFO] Scenario=$1 results=$run"
 }
 usage() {
-    echo 'Usage: sadboard {list|run CASE|verify CASE}; CASE=crash|oom|cpu|lock' >&2
+    echo 'Usage: sadboard {list|run CASE|verify CASE}; CASE=crash|oom|cpu|lock|fd|network|panic' >&2
     exit 64
 }
 case "${1:-}" in
@@ -17,6 +17,7 @@ case "${1:-}" in
         echo 'oom    Memory grows until a dedicated 32 MiB cgroup kills the child'
         echo 'cpu    Repeated table lookup consumes CPU; perf exercise'
         echo 'lock   Two workers wait while a mutex covers simulated I/O'
+        echo 'fd     Repeated requests leak descriptors under a process-only limit of 64'
         echo 'network Isolated veth delay; ping, iperf3, tcpdump and tc exercise'
         echo 'panic  Deliberate kernel panic and reboot; check persistent evidence afterwards'
         ;;
@@ -35,6 +36,13 @@ case "${1:-}" in
             oom) new_run oom; exec "$tools/run-memory" bug "$run" ;;
             cpu) new_run cpu; timeout -s KILL 30 "$tools/cpu-bug" "${3:-4096}" "${4:-500000}" "${5:-42}" > "$run/cpu-bug.out"; cat "$run/cpu-bug.out" ;;
             lock) new_run lock; timeout -s KILL 20 "$tools/lock-bug" "${3:-20}" "${4:-50000}" > "$run/lock-bug.out"; cat "$run/lock-bug.out" ;;
+            fd)
+                new_run fd
+                result=0
+                "$tools/fd-bug" "${3:-128}" "${4:-20}" > "$run/fd-bug.out" || result=$?
+                echo "$result" > "$run/fd-bug.exit"
+                cat "$run/fd-bug.out"
+                exit "$result" ;;
             network) new_run network; exec "$tools/run-network" bug "$run" ;;
             panic) new_run panic; exec "$tools/run-panic" "$run" ;;
             *) usage ;;
@@ -73,6 +81,17 @@ case "${1:-}" in
                 new_run network-verify
                 "$tools/run-network" verify "$run"
                 "$tools/check-result" network verify "$run" 0 ;;
+            fd)
+                new_run fd-verify
+                requests=${3:-128}; delay=${4:-20}
+                result=0
+                "$tools/fd-bug" "$requests" "$delay" > "$run/fd-bug.out" || result=$?
+                echo "$result" > "$run/fd-bug.exit"
+                "$tools/fd-fixed" "$requests" "$delay" > "$run/fd-fixed.out"
+                echo 0 > "$run/fd-fixed.exit"
+                cat "$run/fd-bug.out" "$run/fd-fixed.out"
+                "$tools/check-result" fd verify "$run" 0 "$requests" "$delay"
+                echo '[sadboard] [INFO] Reference repair passed: every request releases its descriptor' ;;
             cpu|lock)
                 new_run "$2-verify"
                 if [ "$2" = cpu ]; then set -- "$2" "${3:-4096}" "${4:-500000}" "${5:-42}"; else set -- "$2" "${3:-20}" "${4:-50000}"; fi

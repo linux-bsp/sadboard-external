@@ -247,6 +247,30 @@ static void oom(const char *mode)
     }
 }
 
+static void descriptor_check(const char *mode, unsigned code, int count, char **args)
+{
+    if (count != 2) reject("descriptor parameters missing");
+    unsigned requests = lab_number(args[0], 4096, 0), delay = lab_number(args[1], 50, 1);
+    if ((uint64_t)requests * delay > 10000) reject("descriptor duration budget");
+    const char *const keys[] = {"limit", "requested", "delay_ms", "baseline", "completed",
+                                "peak_open", "final_open", "error"};
+    int verify = !strcmp(mode, "verify");
+    for (unsigned i = 0; i < (verify ? 2U : 1U); i++) {
+        uint64_t v[8];
+        numeric_json(i ? "fd-fixed.out" : "fd-bug.out", keys, 8, v);
+        if (v[0] != 64 || v[1] != requests || v[2] != delay || v[3] >= 64)
+            reject("descriptor parameters/limit inconsistent");
+        uint64_t completed = i || requests <= 64 - v[3] ? requests : 64 - v[3];
+        unsigned error = !i && completed < requests ? EMFILE : 0;
+        if (v[4] != completed || v[5] != v[3] + (i ? 1 : completed) ||
+            v[6] != v[3] + (i ? 0 : completed) || v[7] != error ||
+            scalar(i ? "fd-fixed.exit" : "fd-bug.exit") != error)
+            reject("descriptor lifecycle/workload inconsistent");
+        if (!i && code != (verify ? 0U : error)) reject("descriptor outer exit inconsistent");
+    }
+    printf("[sadboard] [INFO] Descriptor contract matched: requests=%u limit=64\n", requests);
+}
+
 static double ping_result(const char *file, unsigned wanted_tx, unsigned wanted_rx)
 {
     char text[8192], *line;
@@ -330,6 +354,8 @@ int main(int argc, char **argv)
         if (code) reject("workload did not exit successfully");
         if (!strcmp(scenario, "cpu")) cpu(mode, argc - 5, argv + 5);
         else lock_check(mode, argc - 5, argv + 5);
+    } else if (!strcmp(scenario, "fd")) {
+        descriptor_check(mode, code, argc - 5, argv + 5);
     } else if (!strcmp(scenario, "oom")) {
         if (argc != 5 || code != (verify ? 0U : 137U)) reject("memory exit/parameters");
         oom(mode);
