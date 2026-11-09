@@ -36,6 +36,11 @@ advanced() {
 case "${1:-}" in
     list)
         [ ! -x "$tools/case-suite" ] || "$tools/case-suite" --list
+        echo 'kernel-oops B-BOOT04 Manual kernel BUG and panic-on-oops recovery (run only)'
+        echo 'kernel-lockup B-BOOT05 Real soft/hard lockup and proven hardware watchdog recovery (run only)'
+        echo 'boot-initlib B-BOOT02 Real RAM PID1 loader fault; use host scripts/sadboard-board.py'
+        echo 'boot-root B-BOOT03 Real RAM kernel VFS root fault; use host scripts/sadboard-board.py'
+        echo 'watchdog-probe Hardware recovery prerequisite for kernel-lockup (run only)'
         echo 'crash  Application exits on an unknown record; GDB/core exercise'
         echo 'oom    Memory grows until a dedicated 32 MiB cgroup kills the child'
         echo 'cpu    Repeated table lookup consumes CPU; perf exercise'
@@ -70,6 +75,8 @@ case "${1:-}" in
                 cat "$run/fd-bug.out"
                 exit "$result" ;;
             network) new_run network; exec "$tools/run-network" bug "$run" ;;
+            kernel-oops|kernel-lockup|watchdog-probe) new_run "$2"; exec "$tools/watchdog-probe" --lock sh "$tools/run-kernel" "$2" "$run" ;;
+            memory-cma) new_run memory-cma; exec "$tools/watchdog-probe" --lock sh "$tools/run-cma" run "$run" ;;
             panic) new_run panic; exec "$tools/run-panic" "$run" ;;
             deadline|backlog|tcp)
                 scenario=$2; shift 2
@@ -84,6 +91,7 @@ case "${1:-}" in
     verify)
         [ "$#" -ge 2 ] || usage
         case "$2" in
+            memory-cma) new_run memory-cma; exec "$tools/watchdog-probe" --lock sh "$tools/run-cma" verify "$run" ;;
             crash)
                 new_run crash-verify
                 "$tools/crash-fixed" 1 > "$run/crash-valid.out"

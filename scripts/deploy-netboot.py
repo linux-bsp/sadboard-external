@@ -53,6 +53,15 @@ def main():
         shutil.copyfile(source, temporary)
         temporary.chmod(0o644)
         temporary.replace(tftp / name)
+    laboratory = images / 'sadboard'
+    if laboratory.is_dir():
+        proof = json.loads((laboratory / 'manifest.json').read_text())
+        for name, expected in proof['sha256'].items():
+            if '/' in name or name in ('.', '..') or hashlib.sha256((laboratory/name).read_bytes()).hexdigest() != expected:
+                parser.error('RAM boot laboratory checksum mismatch')
+        shutil.copytree(laboratory, tftp / 'sadboard', dirs_exist_ok=True)
+        for path in (tftp / 'sadboard').iterdir():
+            if path.is_file(): path.chmod(0o644)
     exports = Path('/etc/exports.d')
     exports.mkdir(exist_ok=True)
     (exports / 'sadboard.exports').write_text(f'{root} {client}(rw,sync,no_root_squash,no_subtree_check)\n')

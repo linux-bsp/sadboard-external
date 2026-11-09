@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+run=$1
+old=$(cat "$run/fault-boot-id")
+new=$(cat /proc/sys/kernel/random/boot_id)
+[ "$old" != "$new" ] && [ -f /run/fwctl-boot-confirmed ]
+logctl boot-state > "$run/boot-after.json"
+grep -q "\"previous_recorded_linux_boot\":\"$old\"" "$run/boot-after.json"
+tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
+"$tools/boot-context" > "$run/firmware-after.txt"
+expected=$(sed -n 's/^firmware_id=//p' "$run/run.info")
+read -r format a b c d e f g h i j k extra < "$run/firmware-after.txt"
+if [ "$format" = SBNET1 ]; then
+    [ "$b" = "$expected" ]
+else
+    [ "$format:$c" = FWOTA2:255 ]
+    case "$a" in 0) [ "$g:$e:$f" = "$expected:1:4" ] ;; 1) [ "$k:$i:$j" = "$expected:1:4" ] ;; *) exit 1 ;; esac
+fi
+logctl show --boot previous --stage kernel > "$run/failed-kernel.log"
+logctl export --output "$run/recovery.tar.gz"
+# Validate the complete gzip/tar before searching it. An immediate Oops can
+# beat the live collector; recovered pstore is part of the current boot export.
+tar -tzf "$run/recovery.tar.gz" > "$run/recovery-files.txt"
+scenario=$(sed -n 's/^case=//p' "$run/run.info")
+case "$scenario" in
+    kernel-oops) marker="SadBoard deliberate kernel Oops: run=${run##*/}" ;;
+    kernel-lockup) marker="SadBoard deliberate all-CPU IRQ-off lockup: run=${run##*/}" ;;
+    watchdog-probe) marker="SadBoard deliberate watchdog probe: run=${run##*/}" ;;
+    *) exit 64 ;;
+esac
+if grep -Fq "$marker" "$run/failed-kernel.log"; then
+    echo 'evidence_source=previous-live-kernel' > "$run/evidence-source.txt"
+else
+    tar -xzOf "$run/recovery.tar.gz" | grep -Fq "$marker"
+    echo 'evidence_source=recovered-archive' > "$run/evidence-source.txt"
+fi
+printf 'recovery_boot=%s\nhealth_confirmed=1\nfirmware_match=1\n' "$new" > "$run/recovery.result"
+. "$tools/results.sh"
+sadboard_results_share "$run"
+echo '[sadboard] [INFO] Failed kernel marker retained; matching firmware recovered; archive exported'

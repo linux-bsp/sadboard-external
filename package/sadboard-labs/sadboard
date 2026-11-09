@@ -28,7 +28,7 @@ case "${1:-}" in
         operation=$1; scenario=$2
         case "$scenario:$#" in
             crash:2|oom:2|cpu:2|lock:2|fd:2|network:2|deadline:2|backlog:2|tcp:2) ;;
-            panic:2) [ "$operation" = run ] || usage ;;
+            panic:2|kernel-oops:2|kernel-lockup:2|watchdog-probe:2) [ "$operation" = run ] || usage ;;
             crash:3) [ "$operation" = run ] || usage ;;
             cpu:5|lock:4|fd:4|deadline:5|backlog:4|tcp:3) ;;
             *)
@@ -51,9 +51,9 @@ case "${1:-}" in
         done
         # Panic exercises an unsealed startup of a previously confirmed image.
         # The FWOTA2 checks below still reject trial/pending firmware.
-        if [ "$scenario" != panic ]; then
+        case "$scenario" in panic|kernel-oops|kernel-lockup|watchdog-probe) ;; *)
             [ -f /run/fwctl-boot-confirmed ] || error 'Wait for local boot health confirmation'
-        fi
+        esac
         load_results
         sadboard_results_prepare "$root" || error 'Cannot prepare result directory'
         root=$(cd "$root" && pwd -P)
@@ -79,9 +79,9 @@ $status
 EOF
             [ -z "$extra" ] && [ "${#firmware}" = 64 ] || error 'Invalid network build information'
             case "$version" in ''|*[!0-9]*|??????????*) error 'Invalid network build version' ;; esac
-            if [ "$scenario" = panic ]; then
+            case "$scenario" in panic|kernel-oops|kernel-lockup|watchdog-probe)
                 [ "$(cat /data/sadboard/netboot-confirmed 2>/dev/null)" = "$firmware" ] || error 'First complete a healthy network boot of this build'
-            fi
+            ;; esac
         else
         [ "$format" = FWOTA2 ] && [ -z "$extra" ] && [ "$pending" = 255 ] || error 'Firmware update is pending or status format is invalid'
         case "$booted" in
@@ -121,8 +121,10 @@ EOF
         result=0
         task_limit=16
         [ "$scenario" != memory-threads ] || task_limit=24
+        run_limit=30s
+        case "$scenario" in memory-cma) run_limit=100s ;; kernel-oops|kernel-lockup|watchdog-probe) run_limit=150s ;; esac
         systemd-run --quiet --wait --collect --service-type=exec --unit="$unit" \
-            --property=RuntimeMaxSec=30s --property=TimeoutStopSec=5s \
+            --property="RuntimeMaxSec=$run_limit" --property=TimeoutStopSec=5s \
             --property=KillMode=control-group --property=MemoryMax=134217728 \
             --property="TasksMax=$task_limit" --property=CPUAccounting=yes --property=CPUWeight=100 --property=LimitCORE=33554432 \
             --property="UMask=$run_umask" \
@@ -185,6 +187,9 @@ EOF
                     ip netns del "sb-sw-${run##*/}" 2>/dev/null || true
                     "$tools/cleanup-cgroups" "$run"
                 fi
+                if [ "$(read_field case "$run/run.info")" = memory-cma ] && [ -w /sys/kernel/debug/sadboard-faults/control ]; then
+                    "$tools/watchdog-probe" --lock sh -c 'echo release > /sys/kernel/debug/sadboard-faults/control'
+                fi
                 if [ "$(read_field case "$run/run.info")" = tcp ]; then
                     ip netns del "sb-tcp-${run##*/}" 2>/dev/null || true
                 fi
@@ -193,6 +198,9 @@ EOF
             exit 0
         fi
         cat "$run/run.info"
+        if [ "$operation" = check ]; then
+            case "$(read_field case "$run/run.info")" in kernel-oops|kernel-lockup|watchdog-probe) exec "$tools/check-kernel" "$run" ;; esac
+        fi
         if [ "$operation" = check ] && [ "$(read_field case "$run/run.info")" = panic ]; then
             exec "$tools/check-panic" "$run"
         fi

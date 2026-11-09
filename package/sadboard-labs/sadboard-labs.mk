@@ -15,4 +15,6 @@ define SADBOARD_LABS_INSTALL_TARGET_CMDS
     $(TARGET_MAKE_ENV) $(MAKE) -C $(@D) $(SADBOARD_LABS_MAKE_OPTS) DESTDIR=$(TARGET_DIR) install
 endef
 
+SADBOARD_LABS_MODULE_SUBDIRS = kernel
+$(eval $(kernel-module))
 $(eval $(generic-package))

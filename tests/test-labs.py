@@ -220,10 +220,10 @@ class Labs(unittest.TestCase):
             self.assertEqual(self.execute('case-suite', *args).returncode, 64)
 
     def test_advanced_application_workloads_preserve_real_evidence(self):
-        hardware = {'perf-priority', 'perf-quota', 'memory-high', 'net-pmtu', 'net-rps', 'net-priority'}
+        hardware = {'perf-priority', 'perf-quota', 'memory-high', 'net-pmtu', 'net-rps', 'net-priority', 'memory-cma'}
         names = self.execute('case-suite', '--list').stdout.splitlines()
         advanced = [line.split()[0] for line in names if line.split()[1].startswith('A-')]
-        self.assertEqual(len(advanced), 20)
+        self.assertEqual(len(advanced), 21)
         for name in advanced:
             if name in hardware:
                 continue  # Validated on AM625; host privileges/topology are different.

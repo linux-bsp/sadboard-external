@@ -48,13 +48,13 @@ def verify(images):
                 'source/src/suite-peer.c', 'source/src/suite-peer.h', *labs]
     if not all(name in metadata['sha256'] for name in required):
         raise ValueError('debugging manifest is incomplete')
-    for name in ('vmlinux', *labs):
+    for name in ('vmlinux', 'kernel/sadboard-faults.ko', 'labs/watchdog-probe', *labs):
         target_elf(root / name)
         sections = subprocess.check_output(['readelf', '--sections', '--wide', str(root / name)], text=True)
         if '.debug_info' not in sections:
             raise ValueError(f'debug symbols were stripped: {name}')
     config = (root / 'kernel.config').read_text().splitlines()
-    for symbol in ('CONFIG_DEBUG_INFO_DWARF4', 'CONFIG_FUNCTION_TRACER', 'CONFIG_MEMCG',
+    for symbol in ('CONFIG_CMA_DEBUGFS', 'CONFIG_SOFTLOCKUP_DETECTOR', 'CONFIG_MAGIC_SYSRQ_SERIAL', 'CONFIG_DEBUG_INFO_DWARF4', 'CONFIG_FUNCTION_TRACER', 'CONFIG_MEMCG',
                    'CONFIG_COREDUMP', 'CONFIG_CORE_DUMP_DEFAULT_ELF_HEADERS',
                    'CONFIG_NET_NS', 'CONFIG_VETH', 'CONFIG_NET_SCH_NETEM', 'CONFIG_NET_SCH_HTB',
                    'CONFIG_NET_SCH_TBF', 'CONFIG_NET_SCH_INGRESS', 'CONFIG_NET_CLS_U32', 'CONFIG_NET_ACT_GACT'):

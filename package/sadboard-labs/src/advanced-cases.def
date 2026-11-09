@@ -18,3 +18,4 @@ CASE(n_mtu, "net-pmtu", "A-N05", "Real routed PMTU blackhole and recovery", adv_
 CASE(n_rps, "net-rps", "A-N06", "Real virtual-interface RPS CPU steering", adv_net, 4)
 CASE(n_qos, "net-priority", "A-N07", "Control latency under shared traffic queues", adv_net, 5)
 CASE(n_retry, "net-reconnect", "A-N08", "Reconnect storm vs bounded backoff", adv_net, 6)
+CASE(m_cma, "memory-cma", "A-M07", "Real coherent DMA fragmentation and contiguous CMA failure", cma, 0)

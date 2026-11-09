@@ -33,6 +33,8 @@ for path in sorted((target / 'usr/libexec/sadboard').glob('*')):
         shutil.copyfile(path, out / 'labs' / path.name)
 shutil.rmtree(out / 'source', ignore_errors=True)
 shutil.copytree(target / 'usr/src/sadboard', out / 'source', dirs_exist_ok=True)
+(out / 'kernel').mkdir(exist_ok=True)
+shutil.copyfile(build / 'sadboard-labs-1/kernel/sadboard-faults.ko', out / 'kernel/sadboard-faults.ko')
 identity = json.loads((images / 'firmware-identity.json').read_text())
 files = {}
 for path in sorted(out.rglob('*')):
@@ -64,3 +66,8 @@ for name in artifact_paths:
     format='SADBOARD-NETBOOT-1', reference_build=(netboot / 'build.conf').read_text().strip(),
     sha256=checksums), indent=2) + '\n')
 print('SadBoard TFTP files and NFS rootfs manifest saved:', netboot)
+
+import importlib.util
+spec = importlib.util.spec_from_file_location('boot_labs', Path(__file__).with_name('build-boot-labs.py'))
+module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+module.build(images, Path(os.environ['HOST_DIR']))

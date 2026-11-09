@@ -651,6 +651,10 @@ static void suite_check(const char *name, const char *mode, int index)
             valid = completed == 30000000 && sum == 213978538 && aux > 0 &&
                     (fixed ? (!observed && !after) : (observed > 0 && after > 0));
             break;
+        case S_m_cma:
+            valid = completed == 1 && sum == 4096 && aux >= 4096 &&
+                    (fixed ? (observed == 0 && before >= 4096) : (observed == 12 && before < 4096));
+            break;
         case S_m_arena:
             valid = completed == 8192 && sum == 1044480 && aux < before + 65536 &&
                     (fixed ? observed < 1048576 : observed > 4194304);

@@ -1,0 +1,45 @@
+#!/bin/sh
+set -eu
+scenario=$1; run=$2
+tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
+[ ! -f /run/fwctl-boot-confirmed ] || {
+    echo '[sadboard] [ERROR] Reboot the already confirmed firmware; invoke before health sealing' >&2; exit 75;
+}
+[ "$(cat /sys/class/watchdog/watchdog0/state)" = active ]
+[ "$(cat /sys/class/watchdog/watchdog0/timeout)" = 60 ]
+systemctl kill --kill-whom=all --signal=STOP fw-confirm.service
+restore() {
+    logctl boot-event cancel-intent 2>/dev/null || true
+    systemctl kill --kill-whom=all --signal=CONT fw-confirm.service 2>/dev/null || true
+}
+trap restore EXIT
+logctl status > "$run/startup-before.txt"
+grep -qx 'startup-state=collecting' "$run/startup-before.txt"
+logctl boot-event operator
+cat /proc/sys/kernel/random/boot_id > "$run/fault-boot-id"
+case "$scenario" in
+    watchdog-probe)
+        printf 'SadBoard deliberate watchdog probe: run=%s\n' "${run##*/}" > /dev/kmsg
+        sync
+        "$tools/watchdog-probe" ;;
+    kernel-oops|kernel-lockup)
+        modprobe sadboard-faults
+        echo 3 > /proc/sys/kernel/panic
+        if [ "$scenario" = kernel-oops ]; then
+            echo 1 > /proc/sys/kernel/panic_on_oops; action=oops
+        else
+            expected=$(sed -n 's/^firmware_id=//p' "$run/run.info")
+            [ "$(cat /data/sadboard/watchdog-proven 2>/dev/null)" = "$expected" ] || {
+                echo '[sadboard] [ERROR] First prove hardware WDT recovery for this exact firmware' >&2; exit 75;
+            }
+            echo 1 > /proc/sys/kernel/watchdog
+            echo 1 > /proc/sys/kernel/watchdog_thresh
+            echo 0 > /proc/sys/kernel/softlockup_panic
+            action=lockup
+        fi
+        echo "arm ${run##*/}" > /sys/kernel/debug/sadboard-faults/control
+        sync
+        echo "$action ${run##*/}" > /sys/kernel/debug/sadboard-faults/control ;;
+    *) exit 64 ;;
+esac
+exit 70

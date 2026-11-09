@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+operation=$1; run=$2
+tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
+loaded=0
+cleanup() {
+    [ ! -w /sys/kernel/debug/sadboard-faults/control ] || echo release > /sys/kernel/debug/sadboard-faults/control
+    [ "$loaded" = 0 ] || modprobe -r sadboard-faults
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+if [ ! -w /sys/kernel/debug/sadboard-faults/control ]; then modprobe sadboard-faults; loaded=1; fi
+for mode in bug fixed; do
+    [ "$mode:$operation" != fixed:run ] || break
+    timeout -s KILL 45 "$tools/case-suite" memory-cma "$mode" "$run" > "$run/memory-cma-$mode.out"
+done
+if [ "$operation" = verify ]; then "$tools/check-result" memory-cma verify "$run" 0; fi
