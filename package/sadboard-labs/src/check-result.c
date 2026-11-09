@@ -475,6 +475,7 @@ static void tcp_check(const char *mode, int count, char **args)
 
 enum suite_index {
 #define CASE(symbol, command, id, description, group, variant) S_##symbol,
+#include "advanced-cases.def"
 #include "basic-cases.def"
 #undef CASE
     S_COUNT
@@ -483,6 +484,7 @@ static int suite_index(const char *name)
 {
     static const char *const names[] = {
 #define CASE(symbol, command, id, description, group, variant) command,
+#include "advanced-cases.def"
 #include "basic-cases.def"
 #undef CASE
     };
@@ -621,6 +623,84 @@ static void suite_check(const char *name, const char *mode, int index)
         case S_net_fin:
             valid = completed == 3 && sum == 3 && observed == (fixed ? 0U : 13U) &&
                     aux == (fixed ? 32U : 0U) && before == 104 && !after;
+            break;
+        case S_p_pi:
+            valid = completed == 2 && sum == 84 && observed > 0 && aux == (fixed ? 0U : 1U);
+            break;
+        case S_p_loop:
+            valid = completed == 36 && sum == 896 && observed > 0 &&
+                    (fixed ? after < before : after >= before);
+            break;
+        case S_p_share:
+            valid = completed == 1000000 && sum == 1000000 && observed == (fixed ? 64U : 8U) &&
+                    aux == 2;
+            break;
+        case S_p_log:
+            valid = completed == 1024 && sum == 523776 && observed == (fixed ? 32U : 1024U) &&
+                    aux == observed;
+            break;
+        case S_p_io:
+            valid = completed == 64 && sum == 8257536 && observed == (fixed ? 8U : 64U) &&
+                    aux == 262144;
+            break;
+        case S_p_fault:
+            valid = completed == 4096 && sum == 172032 && observed == (fixed ? 0U : 4096U) &&
+                    (fixed ? aux < 32 : aux >= 4096) && before == 16777216 && after == 4096;
+            break;
+        case S_p_quota:
+            valid = completed == 30000000 && sum == 213978538 && aux > 0 &&
+                    (fixed ? (!observed && !after) : (observed > 0 && after > 0));
+            break;
+        case S_m_arena:
+            valid = completed == 8192 && sum == 1044480 && aux < before + 65536 &&
+                    (fixed ? observed < 1048576 : observed > 4194304);
+            break;
+        case S_m_frame:
+            valid = completed == 64 && sum == 528482304 && observed == (fixed ? 0U : 33554432U) &&
+                    aux == (fixed ? 4U : 192U) && before == (fixed ? 1048576U : 3145728U) && !after;
+            break;
+        case S_m_high:
+            valid = completed == 4096 && sum == 522240 && !aux && after < 33554432 &&
+                    (fixed ? (!observed && before < 8388608) : (observed > 0 && before > 8388608));
+            break;
+        case S_m_session:
+            valid = completed == 8 && sum == 28 && observed == (fixed ? 0U : 8U) &&
+                    aux == (fixed ? 1U : 0U) && before == after;
+            break;
+        case S_m_socket:
+            valid = completed == 1048576 && sum == 44040192 && aux == (fixed ? 1U : 16U) &&
+                    before == after && (fixed ? !observed : observed > 0);
+            break;
+        case S_m_thread:
+            valid = completed == 12 && sum == 66 && observed == (fixed ? 4U : 12U) && aux > 0 &&
+                    after > 0;
+            break;
+        case S_n_batch:
+            valid = completed == 128 && sum == 8128 && observed == (fixed ? 8U : 128U) && !aux;
+            break;
+        case S_n_slow:
+            valid = completed == 64 && sum == 2016 &&
+                    (fixed ? (observed > 0 && observed <= 8) : observed > 8) && !after;
+            break;
+        case S_n_edge:
+            valid = completed == (fixed ? 65U : 2U) && sum == (fixed ? 106U : 43U) &&
+                    observed == (fixed ? 0U : 63U) && aux == 1;
+            break;
+        case S_n_mtu:
+            valid = completed == (fixed ? 1400U : 0U) && sum == (fixed ? 170340U : 0U) &&
+                    observed == (fixed ? 90U : 0U) && aux == (fixed ? 600U : 1500U) &&
+                    before == 64 && after == (fixed ? 3U : 0U);
+            break;
+        case S_n_rps:
+            valid = completed == 262144 && sum == 11010048 && observed == (fixed ? 3U : 2U);
+            break;
+        case S_n_qos:
+            valid = completed == 80 && sum == 2136 && observed > 0 && aux == 64 && before == 16;
+            break;
+        case S_n_retry:
+            valid = before == after &&
+                    (fixed ? (completed == 1 && sum == 42 && observed > 1 && observed <= 20 && !aux)
+                           : (!completed && !sum && observed == 20 && aux == 111));
             break;
         default:
             break;

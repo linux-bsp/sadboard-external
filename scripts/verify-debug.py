@@ -41,7 +41,11 @@ def verify(images):
                 'source/src/backlog.c', 'source/src/tcp.c', 'source/src/lab.h',
                 'source/src/suite.c', 'source/src/suite.h', 'source/src/basic-cases.def',
                 'source/src/suite-fault.c', 'source/src/suite-fd.c', 'source/src/suite-memory.c',
-                'source/src/suite-cpu.c', 'source/src/suite-sync.c', 'source/src/suite-network.c', *labs]
+                'source/src/suite-cpu.c', 'source/src/suite-sync.c', 'source/src/suite-network.c',
+                'source/src/advanced-cases.def', 'source/src/suite-advanced.h',
+                'source/src/suite-performance.c', 'source/src/suite-advanced-memory.c',
+                'source/src/suite-advanced-network.c', 'source/src/suite-cgroup.c',
+                'source/src/suite-peer.c', 'source/src/suite-peer.h', *labs]
     if not all(name in metadata['sha256'] for name in required):
         raise ValueError('debugging manifest is incomplete')
     for name in ('vmlinux', *labs):
@@ -52,7 +56,8 @@ def verify(images):
     config = (root / 'kernel.config').read_text().splitlines()
     for symbol in ('CONFIG_DEBUG_INFO_DWARF4', 'CONFIG_FUNCTION_TRACER', 'CONFIG_MEMCG',
                    'CONFIG_COREDUMP', 'CONFIG_CORE_DUMP_DEFAULT_ELF_HEADERS',
-                   'CONFIG_NET_NS', 'CONFIG_VETH', 'CONFIG_NET_SCH_NETEM'):
+                   'CONFIG_NET_NS', 'CONFIG_VETH', 'CONFIG_NET_SCH_NETEM', 'CONFIG_NET_SCH_HTB',
+                   'CONFIG_NET_SCH_TBF', 'CONFIG_NET_SCH_INGRESS', 'CONFIG_NET_CLS_U32', 'CONFIG_NET_ACT_GACT'):
         if symbol + '=y' not in config:
             raise ValueError(f'missing kernel capability: {symbol}')
     if 'CONFIG_FLOAT_DURATION=y' not in (root / 'busybox.config').read_text().splitlines():

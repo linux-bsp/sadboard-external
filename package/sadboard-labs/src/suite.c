@@ -1,4 +1,4 @@
-#include "suite.h"
+#include "suite-advanced.h"
 #include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -16,10 +16,12 @@ FILE *suite_trace;
         suite_##group(fixed, r, variant);                                                          \
     }
 #include "basic-cases.def"
+#include "advanced-cases.def"
 #undef CASE
 const struct suite_case suite_cases[] = {
 #define CASE(symbol, command, id, description, group, variant) {command, id, description, symbol},
 #include "basic-cases.def"
+#include "advanced-cases.def"
 #undef CASE
 };
 const size_t suite_case_count = sizeof(suite_cases) / sizeof(suite_cases[0]);
@@ -106,6 +108,7 @@ static int overflow_child(bool fixed)
 }
 int main(int argc, char **argv)
 {
+    if(argc>=2 && !strcmp(argv[1],"--peer")) return suite_peer(argc,argv);
     if (argc == 3 && !strcmp(argv[1], "--overflow-child"))
         return overflow_child(!strcmp(argv[2], "fixed"));
     if (argc == 4 && !strcmp(argv[1], "--hold-writer")) {

@@ -119,10 +119,12 @@ EOF
         stop_run() { cancelled=1; systemctl stop "$unit" 2>/dev/null || true; }
         trap stop_run INT TERM HUP
         result=0
+        task_limit=16
+        [ "$scenario" != memory-threads ] || task_limit=24
         systemd-run --quiet --wait --collect --service-type=exec --unit="$unit" \
             --property=RuntimeMaxSec=30s --property=TimeoutStopSec=5s \
             --property=KillMode=control-group --property=MemoryMax=134217728 \
-            --property=TasksMax=16 --property=LimitCORE=33554432 \
+            --property="TasksMax=$task_limit" --property=CPUAccounting=yes --property=CPUWeight=100 --property=LimitCORE=33554432 \
             --property="UMask=$run_umask" \
             --property="WorkingDirectory=$run" \
             --property="StandardOutput=append:$run/stdout.log" \
@@ -178,6 +180,10 @@ EOF
                 fi
                 if [ -x "$tools/case-suite" ] && "$tools/case-suite" --has "$(read_field case "$run/run.info")"; then
                     ip netns del "sb-suite-${run##*/}" 2>/dev/null || true
+                    ip netns del "sb-sl-${run##*/}" 2>/dev/null || true
+                    ip netns del "sb-sr-${run##*/}" 2>/dev/null || true
+                    ip netns del "sb-sw-${run##*/}" 2>/dev/null || true
+                    "$tools/cleanup-cgroups" "$run"
                 fi
                 if [ "$(read_field case "$run/run.info")" = tcp ]; then
                     ip netns del "sb-tcp-${run##*/}" 2>/dev/null || true

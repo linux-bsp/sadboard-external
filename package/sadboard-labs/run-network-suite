@@ -1,0 +1,93 @@
+#!/bin/sh
+# Private routed PMTU / RPS / traffic-control experiments, never management eth0.
+set -eu
+[ "$#" = 3 ] || exit 64
+operation=$1; scenario=$2; run=$3
+tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
+left=sb-sl-${run##*/}; right=sb-sr-${run##*/}; router=sb-sw-${run##*/}
+left_owned=0; right_owned=0; router_owned=0; peer_pid=; capture_pid=
+cleanup() {
+    if [ -n "$capture_pid" ]; then kill -INT "$capture_pid" 2>/dev/null || true; wait "$capture_pid" 2>/dev/null || true; fi
+    if [ -n "$peer_pid" ]; then kill "$peer_pid" 2>/dev/null || true; wait "$peer_pid" 2>/dev/null || true; fi
+    [ "$left_owned" = 0 ] || ip netns del "$left"
+    [ "$right_owned" = 0 ] || ip netns del "$right"
+    [ "$router_owned" = 0 ] || ip netns del "$router"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+ip netns add "$left"; left_owned=1
+ip netns add "$right"; right_owned=1
+ip -n "$left" link set lo up
+ip -n "$right" link set lo up
+if [ "$scenario" = net-pmtu ]; then
+    peer=pmtu
+    ip netns add "$router"; router_owned=1
+    ip -n "$router" link set lo up
+    ip -n "$left" link add tx0 type veth peer name up0 netns "$router"
+    ip -n "$router" link add down0 type veth peer name rx0 netns "$right"
+    ip -n "$left" addr add 198.19.0.1/24 dev tx0
+    ip -n "$router" addr add 198.19.0.254/24 dev up0
+    ip -n "$router" addr add 198.19.1.254/24 dev down0
+    ip -n "$right" addr add 198.19.1.2/24 dev rx0
+    ip -n "$left" link set tx0 up mtu 1500
+    ip -n "$router" link set up0 up mtu 1500
+    ip -n "$router" link set down0 up mtu 600
+    ip -n "$right" link set rx0 up mtu 600
+    ip -n "$left" route add 198.19.1.0/24 via 198.19.0.254
+    ip -n "$right" route add 198.19.0.0/24 via 198.19.1.254
+    ip netns exec "$router" sh -c 'echo 1 > /proc/sys/net/ipv4/ip_forward'
+else
+    case "$scenario" in net-rps) peer=rps ;; net-priority) peer=priority ;; *) exit 64 ;; esac
+    ip -n "$left" link add tx0 type veth peer name rx0 netns "$right"
+    ip -n "$left" addr add 198.19.0.1/24 dev tx0
+    ip -n "$right" addr add 198.19.0.2/24 dev rx0
+    ip -n "$left" link set tx0 up
+    ip -n "$right" link set rx0 up
+fi
+ip netns exec "$left" tcpdump --immediate-mode -i tx0 -nn -s 0 -U -w "$run/$scenario.pcap" > "$run/$scenario-tcpdump.out" 2> "$run/$scenario-tcpdump.err" &
+capture_pid=$!
+attempts=0
+while ! grep -q 'listening on tx0' "$run/$scenario-tcpdump.err"; do
+    kill -0 "$capture_pid" || exit 70
+    attempts=$((attempts+1)); [ "$attempts" -lt 200 ] || exit 70
+    sleep 0.01
+done
+for variant in bug fixed; do
+    [ "$variant:$operation" != fixed:run ] || break
+    case "$scenario:$variant" in
+        net-pmtu:bug)
+            ip netns exec "$left" tc qdisc add dev tx0 ingress
+            ip netns exec "$left" tc filter add dev tx0 parent ffff: protocol ip prio 1 u32 match ip protocol 1 0xff action drop ;;
+        net-pmtu:fixed) ip netns exec "$left" tc qdisc del dev tx0 ingress ;;
+        net-rps:*)
+            mask=0; [ "$variant" != fixed ] || mask=8
+            ip netns exec "$right" sh -c 'echo "$1" > /sys/class/net/rx0/queues/rx-0/rps_cpus; cat /sys/class/net/rx0/queues/rx-0/rps_cpus' sh "$mask" > "$run/rps-$variant-mask.txt" ;;
+        net-priority:bug)
+            ip netns exec "$left" tc qdisc add dev tx0 root tbf rate 1mbit burst 4096 latency 1000ms ;;
+        net-priority:fixed)
+            ip netns exec "$left" tc qdisc del dev tx0 root
+            ip netns exec "$left" tc qdisc add dev tx0 root handle 1: htb default 20
+            ip netns exec "$left" tc class add dev tx0 parent 1: classid 1:1 htb rate 1mbit ceil 1mbit
+            ip netns exec "$left" tc class add dev tx0 parent 1:1 classid 1:10 htb rate 100kbit ceil 1mbit prio 0 quantum 512
+            ip netns exec "$left" tc class add dev tx0 parent 1:1 classid 1:20 htb rate 900kbit ceil 1mbit prio 1 quantum 512
+            ip netns exec "$left" tc filter add dev tx0 protocol ip parent 1: prio 1 u32 match ip dport 5002 0xffff flowid 1:10 ;;
+    esac
+    ip netns exec "$right" timeout -s KILL 10 "$tools/case-suite" --peer "$peer" "$variant" "$run" > "$run/$peer-$variant-peer.out" 2> "$run/$peer-$variant-peer.err" &
+    peer_pid=$!
+    attempts=0
+    while [ ! -s "$run/$peer-$variant.ready" ]; do
+        kill -0 "$peer_pid" || exit 70
+        attempts=$((attempts+1)); [ "$attempts" -lt 200 ] || exit 70
+        sleep 0.01
+    done
+    ip netns exec "$left" timeout -s KILL 10 "$tools/case-suite" "$scenario" "$variant" "$run" > "$run/$scenario-$variant.out"
+    peer_status=0
+    wait "$peer_pid" || peer_status=$?
+    peer_pid=
+    [ "$peer_status" = 0 ] || exit 70
+    ip netns exec "$left" tc -s qdisc show dev tx0 > "$run/$scenario-$variant-qdisc.txt"
+    if [ "$scenario:$variant" = net-pmtu:bug ]; then
+        ip netns exec "$left" tc -s filter show dev tx0 parent ffff: > "$run/pmtu-icmp-filter.txt"
+    fi
+done

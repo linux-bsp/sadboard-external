@@ -1,0 +1,17 @@
+#!/bin/sh
+# Only remove groups whose recorded name belongs to this exact experiment.
+set -eu
+[ "$#" = 1 ] || exit 64
+run=$1
+for file in "$run"/*.cgroup; do
+    [ -f "$file" ] && [ ! -L "$file" ] || continue
+    IFS= read -r group < "$file"
+    case "$group" in /sys/fs/cgroup/sadboard-suite-"${run##*/}"-*) ;; *) exit 75 ;; esac
+    [ -d "$group" ] || continue
+    [ ! -w "$group/cgroup.kill" ] || echo 1 > "$group/cgroup.kill"
+    attempts=0
+    while ! rmdir "$group" 2>/dev/null; do
+        attempts=$((attempts+1)); [ "$attempts" -lt 50 ] || exit 75
+        sleep 0.05
+    done
+done

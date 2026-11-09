@@ -28,11 +28,11 @@ class Labs(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def execute(self, binary, *args):
+    def execute(self, binary, *args, timeout=5):
         def no_core():
             resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         return subprocess.run([str(self.build / binary), *args], capture_output=True,
-                              text=True, preexec_fn=no_core, timeout=5)
+                              text=True, preexec_fn=no_core, timeout=timeout)
 
     def test_debug_gate_rejects_wrong_architecture_and_truncated_elf(self):
         spec = importlib.util.spec_from_file_location('debug_verifier', SOURCE.parents[1] / 'scripts/verify-debug.py')
@@ -193,7 +193,7 @@ class Labs(unittest.TestCase):
 
     def test_registered_basic_cases_trigger_and_repair_with_raw_evidence(self):
         self.assertIsNotNone(shutil.which('valgrind'), 'Install host Valgrind for the heap-boundary exercise')
-        names = self.execute('case-suite', '--list').stdout.splitlines()
+        names = [line for line in self.execute('case-suite', '--list').stdout.splitlines() if line.split()[1].startswith('B-')]
         self.assertEqual(len(names), 24)
         for entry in names:
             name = entry.split()[0]
@@ -218,6 +218,27 @@ class Labs(unittest.TestCase):
                 self.assertEqual(self.check_evidence(path, name, 'verify', 0).returncode, 1)
         for args in (('unknown', 'bug', '/tmp'), ('crash-abort', 'other', '/tmp'), ('--has', '../bad')):
             self.assertEqual(self.execute('case-suite', *args).returncode, 64)
+
+    def test_advanced_application_workloads_preserve_real_evidence(self):
+        hardware = {'perf-priority', 'perf-quota', 'memory-high', 'net-pmtu', 'net-rps', 'net-priority'}
+        names = self.execute('case-suite', '--list').stdout.splitlines()
+        advanced = [line.split()[0] for line in names if line.split()[1].startswith('A-')]
+        self.assertEqual(len(advanced), 20)
+        for name in advanced:
+            if name in hardware:
+                continue  # Validated on AM625; host privileges/topology are different.
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory)
+                for variant in ('bug', 'fixed'):
+                    result = self.execute('case-suite', name, variant, directory, timeout=22)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    (path / f'{name}-{variant}.out').write_text(result.stdout)
+                result = self.check_evidence(path, name, 'verify', 0)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                target = path / f'{name}-fixed.out'
+                original = json.loads(target.read_text());original['completed'] += 1
+                target.write_text(json.dumps(original))
+                self.assertEqual(self.check_evidence(path, name, 'verify', 0).returncode, 1)
 
     def test_deadline_raw_timestamps_and_preserved_jobs(self):
         with tempfile.TemporaryDirectory() as directory:

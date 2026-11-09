@@ -6,9 +6,13 @@ operation=$1; scenario=$2; run=$3
 tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
 case "$operation" in run|verify) ;; *) exit 64 ;; esac
 "$tools/case-suite" --has "$scenario"
+case "$scenario" in net-pmtu|net-rps|net-priority) exec "$tools/run-network-suite" "$operation" "$scenario" "$run" ;; esac
 namespace=sb-suite-${run##*/}
 owned=0
-cleanup() { [ "$owned" = 0 ] || ip netns del "$namespace"; }
+cleanup() {
+    "$tools/cleanup-cgroups" "$run"
+    [ "$owned" = 0 ] || ip netns del "$namespace"
+}
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' HUP TERM
