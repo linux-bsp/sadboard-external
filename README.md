@@ -4,9 +4,9 @@ SadBoard 的 Buildroot 实验层，与 `bsp-base-external` 同时加载。主项
 
 ## 当前支持
 
-提供 TI AM6254 调试环境的配置生成入口、用户态工具配置、内核跟踪配置和目标端检查脚本。板级启动配置、源码版本和基础服务来自 BSP 层。调试环境优先复用板上现有启动链，生成内核与 NFS 根文件系统；不生成产品 RAW A/B SD 卡镜像。
+提供 TI AM6254 调试环境的配置生成入口、用户态工具配置、内核跟踪配置和目标端检查脚本。板级启动配置、源码版本和基础服务来自 BSP 层。基线使用 systemd，生成适配现有 RAW A/B 布局的 OTA kernel/rootfs、rootfs.tar 和匹配调试资料；工厂 SD 镜像只供新介质初始化。板上 SPL/U-Boot 不由普通实验 OTA 更新。
 
-目前没有自动故障注入、题库调度或验收服务。可选 KGDB、锁检查和 kmemleak 配置仍需要分别上板验证；不默认启用 KASAN、eBPF/BTF 或 kdump。
+已提供手动应用崩溃案例和参考修复检查：`sadboard list`、`sadboard run crash`、`sadboard verify crash`。启动时仅挂载调试接口，没有自动故障注入或随机题库调度。可选 KGDB、锁检查和 kmemleak 配置仍需要分别上板验证；不默认启用 KASAN、eBPF/BTF 或 kdump。
 
 ## 标准 defconfig 构建
 
@@ -68,9 +68,23 @@ git -C sadboard-external diff -- configs/sadboard_am625_debug_defconfig
 - `configs/sadboard_am625_debug_defconfig`：Buildroot 标准构建入口。
 - `scripts/configure-am625.py`：可选配置生成、依赖检查与标准配置导出。
 - `configs/debug-tools.config`：GDB、strace、Valgrind、perf、trace-cmd、网络工具等。
-- `board/am625/debug.config`：AM6254 的组合配置与 NFS 实验产物策略。
+- `board/am625/debug.config`：AM6254 组合配置、systemd、OTA 与符号导出策略。
 - `kernel/`：基础跟踪与可选诊断片段。
-- `rootfs-overlay/`：启动时挂载 debugfs/tracefs；`sadboard-debug-check` 仅检查环境，不触发故障。
+- `rootfs-overlay/`：systemd 准备 debugfs/tracefs；`sadboard-debug-check` 只检查环境。
+- `package/sadboard-labs/`：手动案例、参考修复和命令入口。
+- `scripts/export-debug.py`：在 BSP 打包完成后保存匹配符号、源码与 SHA256。
+- `tests/test-labs.py`：故障触发、参考修复及入口边界回归。
+- `scripts/verify-debug.py`：部署前核对固件/符号对应关系、完整性与内核能力。
 - `Config.in`、`external.mk`：后续实验软件包入口。
 
 基础层名称保持 `LINUX_BSP`，本层名称为 `SADBOARD`。标准 defconfig 已包含组合结果；加载两个 external 用于解析板级路径、配置和软件包。文件中的路径通过 `BR2_EXTERNAL_*_PATH` 引用，不写死个人目录。保留外部材料的原始许可与来源；项目代码许可尚未确定。
+
+## 调试资料与验证
+
+通用目标文件开启剥离以满足 128 MiB 槽位约束，`usr/libexec/sadboard` 除外。内核与程序符号、源码、配置和固件 ID 自动保存到 `images/debug/`；远程 GDB 使用同次构建的 `staging/`。参考修复检查不等同于自动评判任意用户补丁。
+
+```sh
+python3 sadboard-external/tests/test-labs.py
+```
+
+配置与构建成功、真实 OTA success、工具和场景实机通过分别记录，不混作一个结论。

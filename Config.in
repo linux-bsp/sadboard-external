@@ -1,5 +1,5 @@
 menu "SadBoard troubleshooting labs"
 
-# Add scenario package Config.in entries here as they are implemented.
+source "$BR2_EXTERNAL_SADBOARD_PATH/package/sadboard-labs/Config.in"
 
 endmenu

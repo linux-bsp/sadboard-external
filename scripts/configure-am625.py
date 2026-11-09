@@ -65,10 +65,11 @@ def main():
     config = (output / ".config").read_text()
     required = ["BR2_ENABLE_DEBUG", "BR2_PACKAGE_GDB_SERVER", "BR2_PACKAGE_STRACE", "BR2_PACKAGE_LTRACE",
                 "BR2_PACKAGE_VALGRIND", "BR2_PACKAGE_LINUX_TOOLS_PERF", "BR2_PACKAGE_TRACE_CMD",
-                "BR2_PACKAGE_IPERF3", "BR2_PACKAGE_TCPDUMP", "BR2_TARGET_ROOTFS_TAR"]
+                "BR2_PACKAGE_IPERF3", "BR2_PACKAGE_TCPDUMP", "BR2_TARGET_ROOTFS_TAR",
+                "BR2_INIT_SYSTEMD", "BR2_PACKAGE_SADBOARD_LABS", "BR2_STRIP_strip"]
     missing = [key for key in required if not re.search(r"^" + key + r"=y$", config, re.M)]
-    if missing or "BR2_STRIP_strip=y" in config:
-        raise SystemExit(f"debug configuration validation failed: {missing}; check strip setting")
+    if missing or 'BR2_STRIP_EXCLUDE_DIRS="usr/libexec/sadboard"' not in config:
+        raise SystemExit(f"debug configuration validation failed: {missing}; check lab symbol preservation")
     if args.export_defconfig:
         generated = output / "sadboard_am625_debug_defconfig"
         subprocess.run(command + ["savedefconfig", f"DEFCONFIG={generated}"], check=True)

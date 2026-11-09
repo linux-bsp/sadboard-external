@@ -1,0 +1,6 @@
+#!/bin/sh
+# Prepare interfaces only. Scenarios are always started explicitly.
+set -eu
+grep -qs ' /sys/kernel/debug ' /proc/mounts || mount -t debugfs debugfs /sys/kernel/debug
+grep -qs ' /sys/kernel/tracing ' /proc/mounts || mount -t tracefs tracefs /sys/kernel/tracing
+echo '[sadboard] [INFO] Debug interfaces ready; no scenario started'

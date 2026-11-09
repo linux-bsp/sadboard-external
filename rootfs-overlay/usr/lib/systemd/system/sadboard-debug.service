@@ -1,0 +1,14 @@
+[Unit]
+Description=SadBoard debugging interfaces
+After=systemd-remount-fs.service systemd-sysctl.service bsp-data.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sadboard/setup
+RemainAfterExit=yes
+TimeoutStartSec=10s
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

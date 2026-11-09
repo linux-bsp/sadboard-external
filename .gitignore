@@ -1,0 +1,4 @@
+__pycache__/
+*.py[cod]
+/package/sadboard-labs/crash-bug
+/package/sadboard-labs/crash-fixed

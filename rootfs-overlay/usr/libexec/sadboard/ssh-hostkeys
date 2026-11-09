@@ -1,0 +1,33 @@
+#!/bin/sh
+# Reuse host keys across ordinary reboots and OTA. Never package private keys.
+umask 077
+store=/data/ssh/host
+runtime=/run/dropbear
+warn() { echo '[sadboard] [WARN] SSH host keys remain volatile; persistent storage unavailable' >&2; }
+mkdir -p "$runtime" || exit 1
+if ! grep -qs ' /data ' /proc/mounts || ! mkdir -p "$store"; then
+    warn
+    exit 0
+fi
+chmod 0700 /data/ssh "$store" || { warn; exit 0; }
+for name in dropbear_ed25519_host_key dropbear_rsa_host_key dropbear_ecdsa_host_key; do
+    if [ -e "$store/$name" ]; then
+        if dropbearkey -y -f "$store/$name" >/dev/null 2>&1; then
+            cp "$store/$name" "$runtime/$name" && chmod 0600 "$runtime/$name" || warn
+        else
+            echo "[sadboard] [WARN] Invalid saved SSH key: $name; retained for inspection" >&2
+        fi
+        continue
+    fi
+    if [ "$name" = dropbear_ed25519_host_key ] && [ ! -s "$runtime/$name" ]; then
+        dropbearkey -t ed25519 -f "$runtime/$name" >/dev/null 2>&1 || { warn; continue; }
+    fi
+    [ -s "$runtime/$name" ] || continue
+    dropbearkey -y -f "$runtime/$name" >/dev/null 2>&1 || continue
+    if cp "$runtime/$name" "$store/$name.new" && chmod 0600 "$store/$name.new" && mv "$store/$name.new" "$store/$name"; then
+        :
+    else
+        warn
+    fi
+done
+exit 0

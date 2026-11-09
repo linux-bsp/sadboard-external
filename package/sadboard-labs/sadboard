@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
+case "${1:-}" in
+    list)
+        echo 'crash  Application exits on an unknown record; GDB/core exercise'
+        ;;
+    run)
+        [ "$#" = 2 ] && [ "$2" = crash ] || { echo 'Usage: sadboard run crash' >&2; exit 64; }
+        root=${SADBOARD_RESULTS:-/data/sadboard}
+        mkdir -p "$root"
+        run=$(mktemp -d "$root/crash-XXXXXXXX")
+        cd "$run"
+        # BusyBox ash uses 512-byte blocks for RLIMIT_CORE: 32 MiB.
+        ulimit -c 65536
+        echo "[sadboard] [INFO] Scenario=crash results=$run"
+        exec "$tools/crash-bug" 42
+        ;;
+    verify)
+        [ "$#" = 2 ] && [ "$2" = crash ] || { echo 'Usage: sadboard verify crash' >&2; exit 64; }
+        "$tools/crash-fixed" 1
+        if "$tools/crash-fixed" 42; then
+            echo '[sadboard] [ERROR] Missing record incorrectly accepted' >&2
+            exit 1
+        else
+            result=$?
+            [ "$result" = 2 ] || exit "$result"
+        fi
+        echo '[sadboard] [INFO] Reference repair passed: valid input works; missing record returns 2'
+        ;;
+    *)
+        echo 'Usage: sadboard {list|run crash|verify crash}' >&2
+        exit 64
+        ;;
+esac
