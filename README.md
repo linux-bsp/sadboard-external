@@ -69,7 +69,7 @@ git -C sadboard-external diff -- configs/sadboard_am625_debug_defconfig
 
 脚本调用 Buildroot 的 `olddefconfig` 和 `savedefconfig`，导出可直接加载的最小配置。将生成文件与对应输入改动一起提交。普通使用者无需执行此步骤。
 
-完整操作说明与实际验证记录见 [调试教材](https://github.com/linux-bsp/workspace/blob/SadBoard/docs/sadboard-debugging-handbook.md#netboot)。
+完整操作说明与实际验证记录见 [调试教材](https://github.com/linux-bsp/workspace/blob/SadBoard/docs/obsidian/sadboard/00-实验准备与通用方法/02-TFTP-NFS%20调试启动与编译开关.md)。
 
 ## 目录与职责
 
