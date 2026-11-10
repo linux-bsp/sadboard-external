@@ -35,22 +35,22 @@ class Labs(unittest.TestCase):
                               text=True, preexec_fn=no_core, timeout=timeout)
 
     def test_debug_gate_rejects_wrong_architecture_and_truncated_elf(self):
-        spec = importlib.util.spec_from_file_location('debug_verifier', SOURCE.parents[1] / 'scripts/verify-debug.py')
-        verifier = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(verifier)
+        def target_elf(path):
+            result=subprocess.run(['bash', str(SOURCE.parents[1]/'scripts/verify-debug.sh'), '--elf', str(path)],capture_output=True)
+            if result.returncode: raise ValueError(result.stderr.decode())
         path = Path(self.tmp.name) / 'elf-header'
         header = bytearray(64)
         header[:6] = b'\x7fELF\x02\x01'
         header[18:20] = (183).to_bytes(2, 'little')
         path.write_bytes(header)
-        verifier.target_elf(path)
+        target_elf(path)
         for machine in (62, 40):  # x86-64 and ARM32 are not the AM625 target.
             bad = bytearray(header); bad[18:20] = machine.to_bytes(2, 'little')
             path.write_bytes(bad)
-            with self.assertRaises(ValueError): verifier.target_elf(path)
+            with self.assertRaises(ValueError): target_elf(path)
         for bad in (header[:20], b'#!/bin/sh\n', header[:5] + b'\x02' + header[6:]):
             path.write_bytes(bad)
-            with self.assertRaises(ValueError): verifier.target_elf(path)
+            with self.assertRaises(ValueError): target_elf(path)
 
     def test_descriptor_exhaustion_and_close_preserve_work(self):
         before = resource.getrlimit(resource.RLIMIT_NOFILE)

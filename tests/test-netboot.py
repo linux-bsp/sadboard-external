@@ -50,7 +50,7 @@ class Netboot(unittest.TestCase):
             (images / 'k3-am625-alientek.dtb').write_bytes(b'dtb')
             env = dict(os.environ, TARGET_DIR=str(target), BINARIES_DIR=str(images))
             def build():
-                subprocess.run(['python3', str(EXTERNAL / 'scripts/netboot-build.py')], env=env, check=True, capture_output=True)
+                subprocess.run(['bash', str(EXTERNAL / 'scripts/netboot-build.sh')], env=env, check=True, capture_output=True)
                 return (target / 'etc/sadboard/build.conf').read_text()
             original = build()
             self.assertEqual(original, build())

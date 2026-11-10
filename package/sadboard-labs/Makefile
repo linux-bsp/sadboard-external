@@ -4,10 +4,17 @@ DEBUG_FLAGS = -std=c11 -g3 -O0 -fno-omit-frame-pointer -fno-inline -fdebug-prefi
 PROGRAMS = crash-bug crash-fixed cpu-bug cpu-fixed memory-bug memory-fixed lock-bug lock-fixed fd-bug fd-fixed check-result
 PROGRAMS += case-suite watchdog-probe
 PROGRAMS += deadline-bug deadline-fixed backlog-bug backlog-fixed tcp-bug tcp-fixed
+BOOT_PROGRAMS = boot-init libsadboard-init.so
 INSTALL ?= install
 
 .PHONY: all install clean
-all: $(PROGRAMS)
+all: $(PROGRAMS) $(BOOT_PROGRAMS)
+
+libsadboard-init.so: src/boot-init-library.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) -shared -fPIC -Wl,-soname,libsadboard-init.so $< $(LDFLAGS) -o $@
+
+boot-init: src/boot-init.c libsadboard-init.so
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) $< -L. -lsadboard-init -Wl,-rpath,/usr/lib $(LDFLAGS) -o $@
 
 check-result: src/check-result.c src/lab.h src/basic-cases.def src/advanced-cases.def
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) $< $(LDFLAGS) -o $@
@@ -56,4 +63,4 @@ install: all
 	$(INSTALL) -m 0644 src/*.c src/*.h src/*.def $(DESTDIR)/usr/src/sadboard/src/
 
 clean:
-	rm -f $(PROGRAMS)
+	rm -f $(PROGRAMS) $(BOOT_PROGRAMS)

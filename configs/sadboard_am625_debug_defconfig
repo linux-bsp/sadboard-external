@@ -1,7 +1,6 @@
-# Generated from bsp-base-external/configs/alientek_am62x_defconfig,
-# configs/debug-tools.config and board/am625/debug.config.
-# Regenerate using scripts/configure-am625.py --export-defconfig
-# with a fresh --output directory; do not add machine-specific paths.
+# Native Buildroot profile; maintain with menuconfig and savedefconfig.
+# Kernel, BusyBox and U-Boot fragments use their native Buildroot options.
+# Do not save machine-specific paths into this portable defconfig.
 BR2_aarch64=y
 BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_7_0=y
 BR2_BINUTILS_VERSION_2_46_X=y
@@ -25,8 +24,8 @@ BR2_INIT_SYSTEMD=y
 BR2_TARGET_TZ_ZONELIST="etcetera"
 BR2_TARGET_LOCALTIME="Etc/GMT-8"
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_LINUX_BSP_PATH)/board/ti/am625/rootfs-overlay $(BR2_EXTERNAL_SADBOARD_PATH)/rootfs-overlay"
-BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_LINUX_BSP_PATH)/board/ti/am625/post-build-ti.sh $(BR2_EXTERNAL_SADBOARD_PATH)/scripts/netboot-build.py"
-BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_LINUX_BSP_PATH)/support/scripts/firmware-image.sh $(BR2_EXTERNAL_SADBOARD_PATH)/scripts/export-debug.py"
+BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_LINUX_BSP_PATH)/board/ti/am625/post-build-ti.sh $(BR2_EXTERNAL_SADBOARD_PATH)/scripts/netboot-build.sh"
+BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_LINUX_BSP_PATH)/support/scripts/firmware-image.sh $(BR2_EXTERNAL_SADBOARD_PATH)/scripts/export-debug.sh"
 BR2_ROOTFS_POST_BUILD_SCRIPT_ARGS="-d k3-am625-alientek.dtb"
 BR2_ROOTFS_POST_IMAGE_SCRIPT_ARGS="-c $(BR2_EXTERNAL_LINUX_BSP_PATH)/board/ti/am625/firmware.json"
 BR2_LINUX_KERNEL=y
@@ -124,4 +123,5 @@ BR2_PACKAGE_LIBBMC=y
 BR2_PACKAGE_LIBBMC_IPMI=y
 BR2_PACKAGE_LIBBMC_PMCP=y
 BR2_PACKAGE_HOST_EDK=y
+BR2_PACKAGE_HOST_FW_TOOLS=y
 BR2_PACKAGE_SADBOARD_LABS=y
