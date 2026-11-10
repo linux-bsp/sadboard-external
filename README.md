@@ -58,7 +58,7 @@ git -C sadboard-external diff -- configs/sadboard_am625_debug_defconfig
 标准 defconfig 是本层唯一的 Buildroot 配置入口。Linux、BusyBox 与 U-Boot 仍分别使用原生的
 配置文件/片段选项，不再额外合成另一份 Buildroot 配置。普通 BSP 基线独立维护。
 
-完整操作说明与实际验证记录见 [调试教材](https://github.com/linux-bsp/workspace/blob/SadBoard/docs/obsidian/sadboard/00-实验准备与通用方法/02-TFTP-NFS%20调试启动与编译开关.md)。
+完整操作说明与实际验证记录见 [调试教材](https://github.com/linux-bsp/workspace/blob/SadBoard/docs/obsidian/sadboard/00-实验准备与通用方法/01-构建与启动部署.md)。
 
 ## 目录与职责
 
