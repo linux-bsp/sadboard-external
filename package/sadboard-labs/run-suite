@@ -17,7 +17,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' HUP TERM
 case "$scenario" in
-    net-*|fd-closewait)
+    net-*|fd-closewait|kernel-udp-trunc)
         ip netns add "$namespace"; owned=1
         ip -n "$namespace" link set lo up ;;
 esac

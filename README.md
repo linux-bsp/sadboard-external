@@ -6,11 +6,11 @@ SadBoard 的 Buildroot 实验层，与 `bsp-base-external` 同时加载。主项
 
 提供 TI AM6254 调试环境的标准 defconfig 入口、用户态工具配置、内核跟踪配置和目标端检查脚本。板级启动配置、源码版本和基础服务来自 BSP 层。基线使用 systemd，默认 TFTP 内核/DTB＋NFS root；保留本地 RAW A/B 启动与 OTA kernel/rootfs。生成 rootfs.tar、images/netboot/ 和匹配调试资料；工厂 SD 镜像只供新介质初始化。板上 SPL/U-Boot 不由普通实验 OTA 更新。
 
-已提供崩溃、FD 耗尽、OOM、CPU、锁、隔离网络、启动 panic、周期漂移、队列积压和 TCP 批处理十个原有手动案例，并新增 24 个基础场景（再增 20 个进阶以及 CMA/四项启动内核实验，共 59 例）。使用 `sadboard list`、`sadboard run crash`、`sadboard verify crash` 等命令，启动时没有自动故障注入或随机题库调度。可选 KGDB、锁检查和 kmemleak 配置仍需要分别上板验证；不默认启用 KASAN、eBPF/BTF 或 kdump。
+已提供崩溃、FD 耗尽、OOM、CPU、锁、隔离网络、启动 panic、周期漂移、队列积压和 TCP 批处理十个原有手动案例，并新增 24 个基础场景（再增 20 个进阶以及 CMA/四项启动内核实验，原有共 59 例，另增 8 个 A64 汇编与 8 个内核子系统实验，总计 75 例）。使用 `sadboard list`、`sadboard run crash`、`sadboard verify crash` 等命令，启动时没有自动故障注入或随机题库调度。可选 KGDB、锁检查和 kmemleak 配置仍需要分别上板验证；不默认启用 KASAN、eBPF/BTF 或 kdump。
 
 `sadboard list B-CR` 按手册编号前缀只列出应用崩溃单元；`B-MM`、`B-CPU`、`A-P` 等
 同样适用。全量与筛选结果统一按“编号、命令入口、说明”输出。省略前缀时列出全部
-59 个正式案例和独立的辅助检查区域。单元前缀及操作示例见手册的 sadboard 工具说明。
+75 个正式案例和独立的辅助检查区域。单元前缀及操作示例见手册的 sadboard 工具说明。
 
 公共片段 `bsp-base-external/board/ti/am625/uboot/netboot.config` 默认启用独立的 `CONFIG_AM62X_BOOT_TFTP_KERNEL` 和
 `CONFIG_AM62X_BOOT_NFS_ROOT`，分别映射到 U-Boot 的 `tftp_kernel`、`nfs_root`。
@@ -47,7 +47,7 @@ sadboard-external/scripts/sync-artifacts.sh /path/to/output/images \
 
 `sadboard results` 显示当前结果目录，`SADBOARD_RESULTS` 可覆盖它。NFS 实验结束后自动开放产物读取权限；手工生成的 perf/core/trace 文件可用 `sadboard share 结果子目录` 开放主机读取。空间检查针对结果所在的实际文件系统。
 
-新增入口：`sadboard verify deadline 200 10000 2000`、`sadboard verify backlog 512 64`、`sadboard verify tcp 8192`。故障与参考版保留相同工作量，记录逐次时间/队列和完整性指标；TCP 只操作自建 namespace。新基础入口例如 `sadboard verify crash-sigbus`、`sadboard verify fd-cloexec`、`sadboard verify sync-abba`、`sadboard verify net-framing`，全部固定有限负载。`sadboard list` 列出完整命令与教材 ID。主项目统一教材还包含 35 个基础、24 个进阶设计（共 59 例）；57 例通过设备命令操作，B-BOOT02/03 由 scripts/sadboard-board.py 经主机串口控制真实 AM625 的 RAM 启动。看门狗探测为锁死实验前置检查，不另算案例；本阶段验收范围见主仓记录。
+新增入口：`sadboard verify deadline 200 10000 2000`、`sadboard verify backlog 512 64`、`sadboard verify tcp 8192`。故障与参考版保留相同工作量，记录逐次时间/队列和完整性指标；TCP 只操作自建 namespace。新基础入口例如 `sadboard verify crash-sigbus`、`sadboard verify fd-cloexec`、`sadboard verify sync-abba`、`sadboard verify net-framing`，全部固定有限负载。`sadboard list` 列出完整命令与教材 ID。主项目统一教材还包含 35 个基础、24 个进阶设计（原有共 59 例，另增 8 个 A64 汇编与 8 个内核子系统实验，总计 75 例）；57 例通过设备命令操作，B-BOOT02/03 由 scripts/sadboard-board.py 经主机串口控制真实 AM625 的 RAM 启动。看门狗探测为锁死实验前置检查，不另算案例；本阶段验收范围见主仓记录。
 
 ## 标准 defconfig 构建
 
@@ -128,3 +128,7 @@ python3 sadboard-external/tests/test-results.py
 配置与构建成功、真实 OTA success、工具和场景实机通过分别记录，不混作一个结论。
 
 设备不安装 Python 解释器；Device Manager 与设备工具均为原生 C 程序。自定义构建使用 Buildroot 包、Bash post-build/post-image、Kconfig/CMake 和原生主机工具。上游 U-Boot/binman、OP-TEE 等由 Buildroot 管理的主机 Python 依赖保留；本仓 Python 测试和串口控制器仅在开发主机运行。
+
+新增单元：`sadboard list L-ASM` 列出 8 个真实 A64 汇编题，`sadboard list K-` 列出 8 个内核子系统题。
+两者沿用 run/verify/check 和统一证据契约；A64 题在非小端 AArch64 主机拒绝执行（77），不使用模拟器。
+子系统题调用真实 Linux 接口，限制在自己的进程/文件/FD/映射和网络空间内。

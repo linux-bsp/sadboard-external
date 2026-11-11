@@ -17,11 +17,13 @@ FILE *suite_trace;
     }
 #include "basic-cases.def"
 #include "advanced-cases.def"
+#include "learning-cases.def"
 #undef CASE
 const struct suite_case suite_cases[] = {
 #define CASE(symbol, command, id, description, group, variant) {command, id, description, symbol},
 #include "basic-cases.def"
 #include "advanced-cases.def"
+#include "learning-cases.def"
 #undef CASE
 };
 const size_t suite_case_count = sizeof(suite_cases) / sizeof(suite_cases[0]);
@@ -49,7 +51,8 @@ static const struct suite_case external_cases[] = {
 static unsigned catalog_group(const char *id)
 {
     static const char *const groups[] = {
-        "B-CR", "B-FD", "B-MM", "B-CPU", "B-SYNC", "B-NET", "B-BOOT", "A-P", "A-M", "A-N"
+        "B-CR", "B-FD", "B-MM", "B-CPU", "B-SYNC", "B-NET", "B-BOOT", "A-P", "A-M", "A-N",
+        "L-ASM", "K-MM", "K-VFS", "K-IPC", "K-TIME", "K-PROC", "K-NET", "K-IO", "K-SCHED"
     };
     unsigned count = sizeof(groups) / sizeof(groups[0]);
     for (unsigned i = 0; i < count; i++)

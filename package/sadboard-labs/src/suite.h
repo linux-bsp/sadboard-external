@@ -30,6 +30,8 @@ void suite_mem(bool fixed, struct sample *r, unsigned kind);
 void suite_cpu(bool fixed, struct sample *r, unsigned kind);
 void suite_sync(bool fixed, struct sample *r, unsigned kind);
 void suite_net(bool fixed, struct sample *r, unsigned kind);
+void suite_assembly(bool fixed, struct sample *r, unsigned kind);
+void suite_kernel(bool fixed, struct sample *r, unsigned kind);
 #endif
 
 void suite_cma(bool fixed, struct sample *r, unsigned variant);

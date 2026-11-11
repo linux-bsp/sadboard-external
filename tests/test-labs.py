@@ -129,6 +129,8 @@ class Labs(unittest.TestCase):
         rows = [line.split(maxsplit=2) for line in scenarios.splitlines()]
         groups = [('B-' + group, 5) for group in ('CR', 'FD', 'MM', 'CPU', 'SYNC', 'NET', 'BOOT')]
         groups += [('A-' + group, 8) for group in ('P', 'M', 'N')]
+        groups += [('L-ASM', 8)]
+        groups += [('K-' + group, 1) for group in ('MM', 'VFS', 'IPC', 'TIME', 'PROC', 'NET', 'IO', 'SCHED')]
         expected = [f'{group}{number:02d}' for group, count in groups for number in range(1, count + 1)]
         self.assertEqual([row[0] for row in rows], expected)
         self.assertEqual(auxiliary.split(maxsplit=1)[0], 'watchdog-probe')
@@ -136,10 +138,10 @@ class Labs(unittest.TestCase):
                        'lock': 'B-SYNC01', 'network': 'B-NET01', 'panic': 'B-BOOT01',
                        'deadline': 'A-P01', 'backlog': 'A-M01', 'tcp': 'A-N01'}
         indexed = {row[1]: row[0] for row in rows}
-        self.assertEqual(len(indexed), 59)
+        self.assertEqual(len(indexed), 75)
         for command, case_id in first_cases.items():
             self.assertEqual(indexed[command], case_id)
-        for prefix in [group for group, _ in groups] + ['B-', 'A-', 'B-CR01', 'B-CR0']:
+        for prefix in [group for group, _ in groups] + ['B-', 'A-', 'K-', 'L-', 'B-CR01', 'B-CR0']:
             with self.subTest(prefix=prefix):
                 filtered = subprocess.run(['sh', str(self.build / 'sadboard'), 'list', prefix], env=env,
                                           capture_output=True, text=True, check=True)
@@ -172,6 +174,41 @@ class Labs(unittest.TestCase):
                 result = self.execute('cpu-' + mode, str(items), str(queries), str(seed))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout)['checksum'], checksum)
+
+    def test_kernel_teaching_cases_preserve_evidence_and_cleanup(self):
+        names = [line.split()[0] for line in self.execute('case-suite', '--list').stdout.splitlines()
+                 if line.split()[1].startswith('K-')]
+        self.assertEqual(len(names), 8)
+        for name in names:
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory)
+                for variant in ('bug', 'fixed'):
+                    result = self.execute('case-suite', name, variant, directory, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    (path / f'{name}-{variant}.out').write_text(result.stdout)
+                self.assertEqual(self.check_evidence(path, name, 'verify', 0).returncode, 0)
+                target = path / f'{name}-fixed.out'
+                trace = path / f'{name}-fixed.trace'
+                original = json.loads(target.read_text())
+                original['completed'] += 1
+                target.write_text(json.dumps(original))
+                # Alter both layers: the scenario contract must still reject the result.
+                trace.write_text('\n'.join('completed,' + str(original['completed'])
+                                          if line.startswith('completed,') else line
+                                          for line in trace.read_text().splitlines()) + '\n')
+                self.assertEqual(self.check_evidence(path, name, 'verify', 0).returncode, 1)
+
+    @unittest.skipUnless(os.uname().machine != 'aarch64', 'AM625 validates the actual A64 instructions')
+    def test_assembly_cases_reject_an_unsupported_host_instead_of_simulating(self):
+        names = [line.split()[0] for line in self.execute('case-suite', '--list').stdout.splitlines()
+                 if line.split()[1].startswith('L-ASM')]
+        self.assertEqual(len(names), 8)
+        for name in names:
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
+                result = self.execute('case-suite', name, 'fixed', directory)
+                self.assertEqual(result.returncode, 77)
+                self.assertIn('require a little-endian AArch64', result.stderr)
+                self.assertEqual(result.stdout, '')
 
     def test_memory_repair_preserves_work(self):
         for mode in ('bug', 'fixed'):

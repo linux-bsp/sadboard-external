@@ -1,5 +1,5 @@
 /* Read-only evidence checks for the documented reference workload contracts. */
-#define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE
 #include "lab.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
+#include <sched.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -477,6 +478,7 @@ enum suite_index {
 #define CASE(symbol, command, id, description, group, variant) S_##symbol,
 #include "advanced-cases.def"
 #include "basic-cases.def"
+#include "learning-cases.def"
 #undef CASE
     S_COUNT
 };
@@ -486,6 +488,7 @@ static int suite_index(const char *name)
 #define CASE(symbol, command, id, description, group, variant) command,
 #include "advanced-cases.def"
 #include "basic-cases.def"
+#include "learning-cases.def"
 #undef CASE
     };
     for (unsigned i = 0; i < S_COUNT; i++)
@@ -534,6 +537,72 @@ static void suite_check(const char *name, const char *mode, int index)
                  after = v[5];
         int valid = 0;
         switch (index) {
+        case S_asm_width:
+            valid = completed == 1 && sum == UINT32_C(0x89abcdef) && before == UINT32_C(0x12345678) &&
+                    observed == (fixed ? UINT64_C(0x89abcdef) : UINT64_C(0x1234567889abcdef)) &&
+                    aux == (fixed ? 4U : 8U);
+            break;
+        case S_asm_sign:
+            valid = completed == 1 && sum == (uint64_t)INT64_C(-128) && before == 128 && aux == 8 &&
+                    observed == (fixed ? (uint64_t)INT64_C(-128) : 128U);
+            break;
+        case S_asm_pointer:
+            valid = completed == 1 && sum == 7 && before > UINT32_MAX && aux == UINT32_MAX &&
+                    observed == (fixed ? before : (uint32_t)before) && after == observed;
+            break;
+        case S_asm_branch:
+            valid = completed == 2 && sum == 1 && before == 16 && after == UINT32_C(0x80000000) &&
+                    observed == (fixed ? 1U : 2U) && aux == (fixed ? 0U : 1U);
+            break;
+        case S_asm_call:
+            valid = completed == 1 && sum == 15 && before == 7 && aux == 85 &&
+                    observed == (fixed ? 15U : 93U);
+            break;
+        case S_asm_layout:
+            valid = completed == 1 && sum == UINT32_C(0x12345678) && before == 16 && after == 4 &&
+                    observed == (fixed ? UINT32_C(0x12345678) : UINT32_C(0x78000000)) &&
+                    aux == (fixed ? 4U : 1U);
+            break;
+        case S_asm_bounds:
+            valid = completed == 4 && sum == 10 && before == 4 && after == 20 &&
+                    observed == (fixed ? 10U : 65U) && aux == (fixed ? 4U : 5U);
+            break;
+        case S_asm_preserve:
+            valid = completed == 1 && sum == 0x1234 && before == 0x1234 && aux == 19 &&
+                    observed == (fixed ? 0x1234U : 85U) && after == observed;
+            break;
+        case S_k_cow:
+            valid = completed == 1 && sum == 99 && before == 42 && after == 42 && aux == 99 &&
+                    observed == (fixed ? 99U : 42U);
+            break;
+        case S_k_rename:
+            valid = completed == 1 && sum == 9 && before == 7 && after == 9 && aux == 1 &&
+                    observed == (fixed ? 9U : 7U);
+            break;
+        case S_k_eventfd:
+            valid = completed == (fixed ? 3U : 1U) && sum == 3 && observed == 3 && aux == 1 &&
+                    before == 3 && after == 0;
+            break;
+        case S_k_timerfd:
+            valid = completed == 1 && aux > 1 && sum == aux && before == 10000000 &&
+                    observed == (fixed ? aux : 1U) && after == aux - observed;
+            break;
+        case S_k_zombie:
+            valid = completed == 1 && sum == 7 && before == 1 && after == 0 && aux == 7 &&
+                    observed == (fixed ? 0U : 1U);
+            break;
+        case S_k_datagram:
+            valid = completed == (fixed ? 128U : 16U) && sum == (fixed ? 8128U : 120U) &&
+                    observed == (fixed ? 0U : 1U) && aux == 128;
+            break;
+        case S_k_pipe:
+            valid = completed == (fixed ? 12U : 3U) && sum == (fixed ? 66U : 3U) &&
+                    observed == 3 && aux == 12;
+            break;
+        case S_k_affinity:
+            valid = completed == 1 && sum == 1 && before > 0 && before == after && aux < CPU_SETSIZE &&
+                    observed == (fixed ? 0U : 22U);
+            break;
         case S_cr_abort:
             valid = completed == 1 && observed == (fixed ? 0U : 6U) && aux == (fixed ? 2U : 0U) &&
                     sum == aux;

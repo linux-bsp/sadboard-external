@@ -16,7 +16,7 @@ libsadboard-init.so: src/boot-init-library.c
 boot-init: src/boot-init.c libsadboard-init.so
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) $< -L. -lsadboard-init -Wl,-rpath,/usr/lib $(LDFLAGS) -o $@
 
-check-result: src/check-result.c src/lab.h src/basic-cases.def src/advanced-cases.def
+check-result: src/check-result.c src/lab.h src/basic-cases.def src/advanced-cases.def src/learning-cases.def
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) $< $(LDFLAGS) -o $@
 
 crash-bug: src/crash.c
@@ -47,7 +47,8 @@ watchdog-probe: src/watchdog-probe.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) $< $(LDFLAGS) -o $@
 
 SUITE_SOURCES = src/suite-cma.c src/suite.c src/suite-fault.c src/suite-fd.c src/suite-memory.c src/suite-cpu.c src/suite-sync.c src/suite-network.c src/suite-performance.c src/suite-advanced-memory.c src/suite-advanced-network.c src/suite-cgroup.c src/suite-peer.c
-case-suite: $(SUITE_SOURCES) src/suite.h src/suite-advanced.h src/lab.h src/basic-cases.def src/advanced-cases.def
+SUITE_SOURCES += src/suite-assembly.c src/assembly-aarch64.S src/suite-kernel.c
+case-suite: $(SUITE_SOURCES) src/suite.h src/suite-advanced.h src/lab.h src/basic-cases.def src/advanced-cases.def src/learning-cases.def
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) -fno-optimize-sibling-calls $(SUITE_SOURCES) $(LDFLAGS) -pthread -o $@
 
 install: all
@@ -60,7 +61,7 @@ install: all
 	for script in run-cma run-kernel check-kernel run-network-suite cleanup-cgroups run-suite run-network run-tcp run-panic check-panic; do $(INSTALL) -m 0755 $$script $(DESTDIR)/usr/libexec/sadboard/; done
 	$(INSTALL) -d $(DESTDIR)/usr/src/sadboard/kernel
 	$(INSTALL) -m 0644 kernel/*.c kernel/Makefile $(DESTDIR)/usr/src/sadboard/kernel/
-	$(INSTALL) -m 0644 src/*.c src/*.h src/*.def $(DESTDIR)/usr/src/sadboard/src/
+	$(INSTALL) -m 0644 src/*.c src/*.h src/*.def src/*.S $(DESTDIR)/usr/src/sadboard/src/
 
 clean:
 	rm -f $(PROGRAMS) $(BOOT_PROGRAMS)
