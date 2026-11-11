@@ -8,6 +8,10 @@ SadBoard 的 Buildroot 实验层，与 `bsp-base-external` 同时加载。主项
 
 已提供崩溃、FD 耗尽、OOM、CPU、锁、隔离网络、启动 panic、周期漂移、队列积压和 TCP 批处理十个原有手动案例，并新增 24 个基础场景（再增 20 个进阶以及 CMA/四项启动内核实验，共 59 例）。使用 `sadboard list`、`sadboard run crash`、`sadboard verify crash` 等命令，启动时没有自动故障注入或随机题库调度。可选 KGDB、锁检查和 kmemleak 配置仍需要分别上板验证；不默认启用 KASAN、eBPF/BTF 或 kdump。
 
+`sadboard list B-CR` 按手册编号前缀只列出应用崩溃单元；`B-MM`、`B-CPU`、`A-P` 等
+同样适用。全量与筛选结果统一按“编号、命令入口、说明”输出。省略前缀时列出全部
+59 个正式案例和独立的辅助检查区域。单元前缀及操作示例见手册的 sadboard 工具说明。
+
 公共片段 `bsp-base-external/board/ti/am625/uboot/netboot.config` 默认启用独立的 `CONFIG_AM62X_BOOT_TFTP_KERNEL` 和
 `CONFIG_AM62X_BOOT_NFS_ROOT`，分别映射到 U-Boot 的 `tftp_kernel`、`nfs_root`。
 SadBoard 通过 `board/am625/network.config` 单独提供本实验室的网络地址。普通 BSP 两项均关闭。

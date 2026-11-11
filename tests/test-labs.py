@@ -130,21 +130,34 @@ class Labs(unittest.TestCase):
         groups = [('B-' + group, 5) for group in ('CR', 'FD', 'MM', 'CPU', 'SYNC', 'NET', 'BOOT')]
         groups += [('A-' + group, 8) for group in ('P', 'M', 'N')]
         expected = [f'{group}{number:02d}' for group, count in groups for number in range(1, count + 1)]
-        self.assertEqual([row[1] for row in rows], expected)
+        self.assertEqual([row[0] for row in rows], expected)
         self.assertEqual(auxiliary.split(maxsplit=1)[0], 'watchdog-probe')
         first_cases = {'crash': 'B-CR01', 'fd': 'B-FD01', 'oom': 'B-MM01', 'cpu': 'B-CPU01',
                        'lock': 'B-SYNC01', 'network': 'B-NET01', 'panic': 'B-BOOT01',
                        'deadline': 'A-P01', 'backlog': 'A-M01', 'tcp': 'A-N01'}
-        indexed = {row[0]: row[1] for row in rows}
+        indexed = {row[1]: row[0] for row in rows}
         self.assertEqual(len(indexed), 59)
         for command, case_id in first_cases.items():
             self.assertEqual(indexed[command], case_id)
+        for prefix in [group for group, _ in groups] + ['B-', 'A-', 'B-CR01', 'B-CR0']:
+            with self.subTest(prefix=prefix):
+                filtered = subprocess.run(['sh', str(self.build / 'sadboard'), 'list', prefix], env=env,
+                                          capture_output=True, text=True, check=True)
+                selected = [line.split(maxsplit=2) for line in filtered.stdout.splitlines()]
+                self.assertEqual(selected, [row for row in rows if row[0].startswith(prefix)])
+                self.assertNotIn('Auxiliary checks', filtered.stdout)
+        for prefix in ('', 'B-UNKNOWN', 'crash', 'B-CR*', 'B-CR; echo unexpected'):
+            with self.subTest(invalid_prefix=prefix):
+                invalid = subprocess.run(['sh', str(self.build / 'sadboard'), 'list', prefix], env=env,
+                                         capture_output=True, text=True)
+                self.assertEqual(invalid.returncode, 64)
+                self.assertEqual(invalid.stdout, '')
         for _ in range(2):
             result = subprocess.run(['sh', str(self.build / 'execute'), 'verify', 'crash'],
                                     env=env, capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0)
             self.assertIn('Reference repair passed', result.stdout)
-        for args in ((), ('run', 'unknown'), ('run', 'crash', 'extra'), ('verify',)):
+        for args in ((), ('run', 'unknown'), ('run', 'crash', 'extra'), ('verify',), ('list', 'B-CR', 'extra')):
             result = subprocess.run(['sh', str(self.build / 'sadboard'), *args],
                                     env=env, capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 64)

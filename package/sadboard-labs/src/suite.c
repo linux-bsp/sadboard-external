@@ -68,8 +68,12 @@ static int catalog_compare(const void *left, const void *right)
     return strcmp(a->id, b->id);
 }
 
-static void catalog_list(void)
+static int catalog_list(const char *prefix)
 {
+    if (prefix && !*prefix) {
+        fprintf(stderr, "Case ID prefix must not be empty\n");
+        return 64;
+    }
     const struct suite_case *entries[sizeof(suite_cases) / sizeof(suite_cases[0]) +
                                      sizeof(external_cases) / sizeof(external_cases[0])];
     size_t count = 0;
@@ -78,11 +82,23 @@ static void catalog_list(void)
     for (size_t i = 0; i < sizeof(external_cases) / sizeof(external_cases[0]); i++)
         entries[count++] = &external_cases[i];
     qsort(entries, count, sizeof(entries[0]), catalog_compare);
-    for (size_t i = 0; i < count; i++)
-        printf("%-20s %-9s %s\n", entries[i]->name, entries[i]->id, entries[i]->description);
-    puts("\nAuxiliary checks (not handbook cases):");
-    printf("%-20s %s\n", "watchdog-probe",
-           "Verify hardware watchdog recovery before kernel-lockup (run only)");
+    size_t matched = 0, prefix_length = prefix ? strlen(prefix) : 0;
+    for (size_t i = 0; i < count; i++) {
+        if (prefix && strncmp(entries[i]->id, prefix, prefix_length))
+            continue;
+        printf("%-9s %-20s %s\n", entries[i]->id, entries[i]->name, entries[i]->description);
+        matched++;
+    }
+    if (prefix && !matched) {
+        fprintf(stderr, "No scenarios match case ID prefix: %s\n", prefix);
+        return 64;
+    }
+    if (!prefix) {
+        puts("\nAuxiliary checks (not handbook cases):");
+        printf("%-9s %-20s %s\n", "", "watchdog-probe",
+               "Verify hardware watchdog recovery before kernel-lockup (run only)");
+    }
+    return 0;
 }
 
 void suite_require(bool condition, const char *reason)
@@ -167,10 +183,8 @@ static int overflow_child(bool fixed)
 }
 int main(int argc, char **argv)
 {
-    if (argc == 2 && !strcmp(argv[1], "--catalog")) {
-        catalog_list();
-        return 0;
-    }
+    if ((argc == 2 || argc == 3) && !strcmp(argv[1], "--catalog"))
+        return catalog_list(argc == 3 ? argv[2] : NULL);
     if(argc>=2 && !strcmp(argv[1],"--peer")) return suite_peer(argc,argv);
     if (argc == 3 && !strcmp(argv[1], "--overflow-child"))
         return overflow_child(!strcmp(argv[2], "fixed"));

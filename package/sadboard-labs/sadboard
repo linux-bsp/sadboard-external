@@ -4,7 +4,8 @@ set -eu
 umask 077
 tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
 usage() {
-    echo 'Usage: sadboard {list|results} | {run|verify} CASE [NUMERIC_ARGS] | {status|check|reset|share} RUN_DIRECTORY' >&2
+    echo 'Usage: sadboard list [ID_PREFIX] | results | {run|verify} CASE [NUMERIC_ARGS] | {status|check|reset|share} RUN_DIRECTORY' >&2
+    echo 'List prefixes: B-CR B-FD B-MM B-CPU B-SYNC B-NET B-BOOT A-P A-M A-N' >&2
     echo 'CASE: crash [KEY], oom, cpu [ITEMS QUERIES SEED], lock [ITERATIONS DELAY_US], fd [REQUESTS DELAY_MS], network, panic (run only)' >&2
     echo 'Advanced: deadline [CYCLES PERIOD_US WORK_US], backlog [MESSAGES PAYLOAD_KIB], tcp [RECORDS]' >&2
     exit 64
@@ -16,7 +17,7 @@ load_results() {
     root=$(sadboard_results_root) || error 'Cannot select result directory'
 }
 case "${1:-}" in
-    list) [ "$#" = 1 ] || usage; exec sh "$tools/execute" list ;;
+    list) [ "$#" -le 2 ] || usage; exec sh "$tools/execute" "$@" ;;
     results)
         [ "$#" = 1 ] || usage
         load_results

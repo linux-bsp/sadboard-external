@@ -12,7 +12,7 @@ new_run() {
     echo "[sadboard] [INFO] Scenario=$1 results=$run"
 }
 usage() {
-    echo 'Usage: sadboard {list|run CASE|verify CASE}; CASE=crash|oom|cpu|lock|fd|network|panic|deadline|backlog|tcp' >&2
+    echo 'Usage: sadboard {list [ID_PREFIX]|run CASE|verify CASE}; CASE=crash|oom|cpu|lock|fd|network|panic|deadline|backlog|tcp' >&2
     exit 64
 }
 advanced() {
@@ -35,7 +35,9 @@ advanced() {
 }
 case "${1:-}" in
     list)
-        exec "$tools/case-suite" --catalog
+        [ "$#" -le 2 ] || usage
+        shift
+        exec "$tools/case-suite" --catalog "$@"
         ;;
     run)
         [ "$#" -ge 2 ] || usage
