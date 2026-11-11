@@ -1,8 +1,0 @@
-#!/bin/sh
-# Never mistake an externally booted kernel/root for a confirmed local A/B slot.
-set -eu
-if grep -qw 'sadboard.netboot=1' "${SADBOARD_CMDLINE:-/proc/cmdline}"; then
-    cat "${SADBOARD_BUILD_INFO:-/etc/sadboard/build.conf}"
-else
-    exec fwctl ota-status
-fi

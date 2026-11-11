@@ -9,13 +9,13 @@ logctl boot-state > "$run/boot-after.json"
 grep -q "\"previous_recorded_linux_boot\":\"$old\"" "$run/boot-after.json"
 logctl diagnostic-reason previous > "$run/recovery-reason.txt"
 grep -qx 'DMEVIDENCE1 linux-panic-observed' "$run/recovery-reason.txt"
-"${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}/boot-context" > "$run/firmware-after.txt"
+"${BSP_LIBEXEC:-/usr/libexec/bsp}/boot-context" > "$run/firmware-after.txt"
 # Match the exact booted content ID, not either installed slot.
 read -r format booted active pending v0 g0 s0 id0 v1 g1 s1 id1 extra < "$run/firmware-after.txt"
 expected=$(sed -n 's/^firmware_id=//p' "$run/run.info")
 if [ "$(sed -n 's/^boot_mode=//p' "$run/run.info")" = network-debug ]; then
     read -r format version actual extra < "$run/firmware-after.txt"
-    [ "$format:$actual" = "SBNET1:$expected" ] && [ -z "$extra" ]
+    [ "$format:$actual" = "BSPNET1:$expected" ] && [ -z "$extra" ]
 else
 case "$booted" in
     0) actual=$id0; good=$g0; state=$s0 ;;

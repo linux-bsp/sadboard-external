@@ -29,15 +29,5 @@ find "$out" -type f ! -name build-info.json -print | LC_ALL=C sort | while IFS= 
 done | "$jq" -s 'add' > "$work/hashes.json"
 "$jq" -n --slurpfile identity "$images/firmware-identity.json" --slurpfile sha "$work/hashes.json" \
     '{firmware:$identity[0],sha256:$sha[0]}' > "$out/build-info.json"
-netboot="$images/netboot"
-mkdir -p "$netboot"
-gzip -dc "$images/Image.gz" > "$netboot/Image"
-cp "$images/k3-am625-alientek.dtb" "$netboot/"
-cp "$TARGET_DIR/etc/sadboard/build.conf" "$netboot/build.conf"
-for name in netboot/Image netboot/k3-am625-alientek.dtb netboot/build.conf rootfs.tar; do
-    "$jq" -cn --arg name "$name" --arg hash "$(sha256sum "$images/$name" | cut -d ' ' -f 1)" '{($name):$hash}'
-done | "$jq" -s 'add' > "$work/hashes.json"
-"$jq" -n --arg reference "$(cat "$netboot/build.conf")" --slurpfile sha "$work/hashes.json" \
-    '{format:"SADBOARD-NETBOOT-1",reference_build:$reference,sha256:$sha[0]}' > "$netboot/manifest.json"
 "$scripts/build-boot-labs.sh" "$images"
-printf 'SadBoard symbols and network boot artifacts saved: %s\n' "$out"
+printf 'SadBoard symbols and boot laboratories saved: %s\n' "$out"

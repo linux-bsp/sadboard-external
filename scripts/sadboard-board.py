@@ -122,14 +122,14 @@ def main():
             serial.drain(.2)
             try:
                 r = call('cat /proc/sys/kernel/random/boot_id; cat /run/fwctl-boot-confirmed; '
-                         '/usr/libexec/sadboard/boot-context; cat /etc/sadboard/build.conf; systemctl --failed --no-pager')
+                         '/usr/libexec/bsp/boot-context; cat /etc/bsp/netboot.conf; systemctl --failed --no-pager')
             except subprocess.TimeoutExpired:
                 continue
             lines = r.stdout.splitlines()
             confirmed = len(lines) > 1 and (lines[1] == 'netboot' if reference_mode else lines[1] in ('0', '1'))
             if r.returncode == 0 and confirmed and '0 loaded units listed.' in r.stdout:
                 match = re.search(r'^[a-f0-9-]{36}$', r.stdout, re.M)
-                if match and (('SBNET1 1 ' + reference) in r.stdout if reference_mode else ('FWOTA2' in r.stdout and identity['firmware_id'] in r.stdout and reference in r.stdout)):
+                if match and (('BSPNET1 1 ' + reference) in r.stdout if reference_mode else ('FWOTA2' in r.stdout and identity['firmware_id'] in r.stdout and reference in r.stdout)):
                     return dict(boot_id=match[0], context=r.stdout)
             serial.drain(1)
         raise TimeoutError('Normal matching firmware did not regain healthy SSH access')

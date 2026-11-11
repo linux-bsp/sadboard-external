@@ -7,10 +7,10 @@ new=$(cat /proc/sys/kernel/random/boot_id)
 logctl boot-state > "$run/boot-after.json"
 grep -q "\"previous_recorded_linux_boot\":\"$old\"" "$run/boot-after.json"
 tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
-"$tools/boot-context" > "$run/firmware-after.txt"
+"${BSP_LIBEXEC:-/usr/libexec/bsp}/boot-context" > "$run/firmware-after.txt"
 expected=$(sed -n 's/^firmware_id=//p' "$run/run.info")
 read -r format a b c d e f g h i j k extra < "$run/firmware-after.txt"
-if [ "$format" = SBNET1 ]; then
+if [ "$format" = BSPNET1 ]; then
     [ "$b" = "$expected" ]
 else
     [ "$format:$c" = FWOTA2:255 ]

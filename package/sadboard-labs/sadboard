@@ -67,12 +67,12 @@ case "${1:-}" in
         case "$available" in ''|*[!0-9]*) error 'Cannot read free data space' ;; esac
         [ "$available" -ge 65536 ] || error 'Result filesystem needs at least 64 MiB free; archive old evidence first'
         # Public machine interface; do not parse a private fwctld journal.
-        status=$(timeout -s KILL 10 "$tools/boot-context") || error 'Cannot read boot context'
+        status=$(timeout -s KILL 10 "${BSP_LIBEXEC:-/usr/libexec/bsp}/boot-context") || error 'Cannot read boot context'
         read -r format booted active pending v0 g0 s0 id0 v1 g1 s1 id1 extra <<EOF
 $status
 EOF
         boot_mode=local-ab
-        if [ "$format" = SBNET1 ]; then
+        if [ "$format" = BSPNET1 ]; then
             boot_mode=network-debug
             read -r format version firmware extra <<EOF
 $status
@@ -80,7 +80,7 @@ EOF
             [ -z "$extra" ] && [ "${#firmware}" = 64 ] || error 'Invalid network build information'
             case "$version" in ''|*[!0-9]*|??????????*) error 'Invalid network build version' ;; esac
             case "$scenario" in panic|kernel-oops|kernel-lockup|watchdog-probe)
-                [ "$(cat /data/sadboard/netboot-confirmed 2>/dev/null)" = "$firmware" ] || error 'First complete a healthy network boot of this build'
+                [ "$(cat /data/bsp/netboot-confirmed 2>/dev/null)" = "$firmware" ] || error 'First complete a healthy network boot of this build'
             ;; esac
         else
         [ "$format" = FWOTA2 ] && [ -z "$extra" ] && [ "$pending" = 255 ] || error 'Firmware update is pending or status format is invalid'

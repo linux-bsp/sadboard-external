@@ -8,9 +8,38 @@ SadBoard 的 Buildroot 实验层，与 `bsp-base-external` 同时加载。主项
 
 已提供崩溃、FD 耗尽、OOM、CPU、锁、隔离网络、启动 panic、周期漂移、队列积压和 TCP 批处理十个原有手动案例，并新增 24 个基础场景（再增 20 个进阶以及 CMA/四项启动内核实验，共 59 例）。使用 `sadboard list`、`sadboard run crash`、`sadboard verify crash` 等命令，启动时没有自动故障注入或随机题库调度。可选 KGDB、锁检查和 kmemleak 配置仍需要分别上板验证；不默认启用 KASAN、eBPF/BTF 或 kdump。
 
-`board/am625/uboot-netboot.config` 默认启用独立的 `CONFIG_AM62X_BOOT_TFTP_KERNEL` 和
+公共片段 `bsp-base-external/board/ti/am625/uboot/netboot.config` 默认启用独立的 `CONFIG_AM62X_BOOT_TFTP_KERNEL` 和
 `CONFIG_AM62X_BOOT_NFS_ROOT`，分别映射到 U-Boot 的 `tftp_kernel`、`nfs_root`。
-普通 BSP 两项均关闭。任一网络模式停用生产 OTA/槽位确认，使用独立调试健康门禁和 SBNET1 参考构建记录。NFS 根下的实验结果默认写 `/srv/sadboard`，主机可直接访问；本地根仍写 `/data/sadboard`。SD `/data` 保存设备日志和启动状态。部署用 `scripts/deploy-netboot.sh`，完整四模式配置和操作见工作区教材。
+SadBoard 通过 `board/am625/network.config` 单独提供本实验室的网络地址。普通 BSP 两项均关闭。
+任一网络模式使用公共 `bsp.netboot=1` 标记，停用生产 OTA/槽位确认，并使用 BSPNET1 参考构建记录。
+NFS 根下的实验结果默认写 `/srv/sadboard`，主机可直接访问；本地根仍写 `/data/sadboard`。
+SD `/data` 保存设备日志和启动状态。通用启动策略、构建标识与部署实现由 `bsp-base-external` 提供。
+SadBoard 的日常同步统一使用以下入口，先让设备从 SD 启动或关机，再从 workspace 执行：
+
+```sh
+sadboard-external/scripts/sync-artifacts.sh output/am625-debug-systemd/images
+```
+
+默认同步到 `/srv/nfs/sadboard-am625` 和 `/srv/tftp/am625`，并刷新 `192.168.10.211` 的 NFS 导出。
+已有 NFS 根目录通过 rsync 更新，删除过时构建文件，保留 `/srv/sadboard` 实验结果及
+`/etc/machine-id`；不再每次重命名整个根目录。存在 RAM 实验载荷时一起同步。
+脚本优先使用已有 sudo 授权，需要密码时读取仓库外的 `~/.config/.sudo.guo`，要求文件
+属于当前用户且权限为 600 或 400。密码只进入 sudo 标准输入，不写参数、日志或固件。
+可用 `--password-file FILE` 或 `SADBOARD_SUDO_PASSWORD_FILE` 指定其他文件。
+完整四模式配置和操作见工作区教材。
+
+只检查产物、不申请 sudo 或修改目的目录：
+
+```sh
+sadboard-external/scripts/sync-artifacts.sh output/am625-debug-systemd/images --check
+```
+
+不同板卡或输出目录可显式指定：
+
+```sh
+sadboard-external/scripts/sync-artifacts.sh /path/to/output/images \
+  --nfs-root /srv/nfs/my-board --tftp-root /srv/tftp/my-board --client 192.168.10.212
+```
 
 `sadboard results` 显示当前结果目录，`SADBOARD_RESULTS` 可覆盖它。NFS 实验结束后自动开放产物读取权限；手工生成的 perf/core/trace 文件可用 `sadboard share 结果子目录` 开放主机读取。空间检查针对结果所在的实际文件系统。
 
@@ -58,7 +87,7 @@ git -C sadboard-external diff -- configs/sadboard_am625_debug_defconfig
 标准 defconfig 是本层唯一的 Buildroot 配置入口。Linux、BusyBox 与 U-Boot 仍分别使用原生的
 配置文件/片段选项，不再额外合成另一份 Buildroot 配置。普通 BSP 基线独立维护。
 
-完整操作说明与实际验证记录见 [调试教材](https://github.com/linux-bsp/workspace/blob/SadBoard/docs/obsidian/sadboard/00-实验准备与通用方法/01-构建与启动部署.md)。
+完整操作说明与实际验证记录见 [调试教材](https://github.com/linux-bsp/obsidian-sadboard/blob/master/00-实验准备与通用方法/01-构建与启动部署.md)。
 
 ## 目录与职责
 
@@ -69,9 +98,11 @@ git -C sadboard-external diff -- configs/sadboard_am625_debug_defconfig
 - `scripts/export-debug.sh`：在 BSP 打包完成后保存匹配符号、源码与 SHA256。
 - `tests/test-labs.py`：故障触发、参考修复及入口边界回归。
 - `scripts/verify-debug.sh`：部署前核对固件/符号对应关系、完整性与内核能力。
-- `scripts/netboot-build.sh`：原生 post-build 调试身份记录。
+- `bsp-base-external/support/scripts/netboot-build.sh`：公共 post-build 网络参考标识。
 - `scripts/build-boot-labs.sh`：打包 RAM 启动实验；ELF 由实验包 Makefile 用目标编译器构建。
-- `scripts/deploy-netboot.sh`：主机 TFTP/NFS 部署。
+- `bsp-base-external/support/scripts/deploy-netboot.sh`：公共主机 TFTP/NFS 部署。
+- `scripts/deploy-boot-labs.sh`：SadBoard RAM 故障实验载荷部署。
+- `scripts/sync-artifacts.sh`：统一 NFS/TFTP 产物同步及本地主机 sudo 授权。
 - `scripts/sadboard-board.py`：可选的主机串口验收工具，不参与构建或设备运行。
 - `Config.in`、`external.mk`：实验软件包入口。
 
@@ -83,7 +114,8 @@ git -C sadboard-external diff -- configs/sadboard_am625_debug_defconfig
 
 ```sh
 python3 sadboard-external/tests/test-labs.py
-python3 sadboard-external/tests/test-netboot.py
+python3 bsp-base-external/support/scripts/tests/test-netboot.py
+python3 sadboard-external/tests/test-sync-artifacts.py
 python3 sadboard-external/tests/test-results.py
 ```
 
