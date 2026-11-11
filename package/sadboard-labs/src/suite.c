@@ -44,7 +44,6 @@ static const struct suite_case external_cases[] = {
     {"deadline", "A-P01", "Periodic telemetry drifts despite low CPU; release-time CSV and absolute timers", NULL},
     {"backlog", "A-M01", "Slow downstream consumer causes memory growth; bounded queue and backpressure", NULL},
     {"tcp", "A-N01", "Many small telemetry writes consume CPU; framed TCP batching in an owned namespace", NULL},
-    {"watchdog-probe", "-", "Hardware recovery prerequisite for kernel-lockup (auxiliary; run only)", NULL},
 };
 
 static unsigned catalog_group(const char *id)
@@ -56,7 +55,7 @@ static unsigned catalog_group(const char *id)
     for (unsigned i = 0; i < count; i++)
         if (!strncmp(id, groups[i], strlen(groups[i])))
             return i;
-    return count + !strcmp(id, "-");
+    return count;
 }
 
 static int catalog_compare(const void *left, const void *right)
@@ -81,6 +80,9 @@ static void catalog_list(void)
     qsort(entries, count, sizeof(entries[0]), catalog_compare);
     for (size_t i = 0; i < count; i++)
         printf("%-20s %-9s %s\n", entries[i]->name, entries[i]->id, entries[i]->description);
+    puts("\nAuxiliary checks (not handbook cases):");
+    printf("%-20s %s\n", "watchdog-probe",
+           "Verify hardware watchdog recovery before kernel-lockup (run only)");
 }
 
 void suite_require(bool condition, const char *reason)

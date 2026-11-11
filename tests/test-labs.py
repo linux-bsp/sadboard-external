@@ -124,17 +124,19 @@ class Labs(unittest.TestCase):
         env = dict(os.environ, SADBOARD_LIBEXEC=str(self.build), SADBOARD_RESULTS=str(self.build / 'results'))
         listing = subprocess.run(['sh', str(self.build / 'sadboard'), 'list'], env=env,
                                  capture_output=True, text=True, check=True)
-        rows = [line.split(maxsplit=2) for line in listing.stdout.splitlines()]
+        scenarios, separator, auxiliary = listing.stdout.partition('\nAuxiliary checks (not handbook cases):\n')
+        self.assertTrue(separator)
+        rows = [line.split(maxsplit=2) for line in scenarios.splitlines()]
         groups = [('B-' + group, 5) for group in ('CR', 'FD', 'MM', 'CPU', 'SYNC', 'NET', 'BOOT')]
         groups += [('A-' + group, 8) for group in ('P', 'M', 'N')]
         expected = [f'{group}{number:02d}' for group, count in groups for number in range(1, count + 1)]
-        self.assertEqual([row[1] for row in rows[:-1]], expected)
-        self.assertEqual(rows[-1][:2], ['watchdog-probe', '-'])
+        self.assertEqual([row[1] for row in rows], expected)
+        self.assertEqual(auxiliary.split(maxsplit=1)[0], 'watchdog-probe')
         first_cases = {'crash': 'B-CR01', 'fd': 'B-FD01', 'oom': 'B-MM01', 'cpu': 'B-CPU01',
                        'lock': 'B-SYNC01', 'network': 'B-NET01', 'panic': 'B-BOOT01',
                        'deadline': 'A-P01', 'backlog': 'A-M01', 'tcp': 'A-N01'}
         indexed = {row[0]: row[1] for row in rows}
-        self.assertEqual(len(indexed), 60)
+        self.assertEqual(len(indexed), 59)
         for command, case_id in first_cases.items():
             self.assertEqual(indexed[command], case_id)
         for _ in range(2):
