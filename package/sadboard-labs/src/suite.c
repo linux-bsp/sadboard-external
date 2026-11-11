@@ -26,6 +26,63 @@ const struct suite_case suite_cases[] = {
 };
 const size_t suite_case_count = sizeof(suite_cases) / sizeof(suite_cases[0]);
 
+/* These entries are launched by shell helpers or the host UART controller.
+ * Include them in the public catalog without changing --has/run dispatch.
+ */
+static const struct suite_case external_cases[] = {
+    {"crash", "B-CR01", "Application exits on an unknown record; GDB/core exercise", NULL},
+    {"fd", "B-FD01", "Repeated requests leak descriptors under a process-only limit of 64", NULL},
+    {"oom", "B-MM01", "Memory grows until a dedicated 32 MiB cgroup kills the child", NULL},
+    {"cpu", "B-CPU01", "Repeated table lookup consumes CPU; perf exercise", NULL},
+    {"lock", "B-SYNC01", "Two workers wait while a mutex covers simulated I/O", NULL},
+    {"network", "B-NET01", "Isolated veth delay; ping, iperf3, tcpdump and tc exercise", NULL},
+    {"panic", "B-BOOT01", "Deliberate kernel panic and reboot; check persistent evidence (run only)", NULL},
+    {"boot-initlib", "B-BOOT02", "RAM PID1 loader fault; host sadboard-external/scripts/sadboard-board.py", NULL},
+    {"boot-root", "B-BOOT03", "RAM kernel VFS root fault; host sadboard-external/scripts/sadboard-board.py", NULL},
+    {"kernel-oops", "B-BOOT04", "Manual kernel BUG and panic-on-oops recovery (run only)", NULL},
+    {"kernel-lockup", "B-BOOT05", "Real soft/hard lockup and proven hardware watchdog recovery (run only)", NULL},
+    {"deadline", "A-P01", "Periodic telemetry drifts despite low CPU; release-time CSV and absolute timers", NULL},
+    {"backlog", "A-M01", "Slow downstream consumer causes memory growth; bounded queue and backpressure", NULL},
+    {"tcp", "A-N01", "Many small telemetry writes consume CPU; framed TCP batching in an owned namespace", NULL},
+    {"watchdog-probe", "-", "Hardware recovery prerequisite for kernel-lockup (auxiliary; run only)", NULL},
+};
+
+static unsigned catalog_group(const char *id)
+{
+    static const char *const groups[] = {
+        "B-CR", "B-FD", "B-MM", "B-CPU", "B-SYNC", "B-NET", "B-BOOT", "A-P", "A-M", "A-N"
+    };
+    unsigned count = sizeof(groups) / sizeof(groups[0]);
+    for (unsigned i = 0; i < count; i++)
+        if (!strncmp(id, groups[i], strlen(groups[i])))
+            return i;
+    return count + !strcmp(id, "-");
+}
+
+static int catalog_compare(const void *left, const void *right)
+{
+    const struct suite_case *a = *(const struct suite_case *const *)left;
+    const struct suite_case *b = *(const struct suite_case *const *)right;
+    unsigned ga = catalog_group(a->id), gb = catalog_group(b->id);
+    if (ga != gb)
+        return ga < gb ? -1 : 1;
+    return strcmp(a->id, b->id);
+}
+
+static void catalog_list(void)
+{
+    const struct suite_case *entries[sizeof(suite_cases) / sizeof(suite_cases[0]) +
+                                     sizeof(external_cases) / sizeof(external_cases[0])];
+    size_t count = 0;
+    for (size_t i = 0; i < suite_case_count; i++)
+        entries[count++] = &suite_cases[i];
+    for (size_t i = 0; i < sizeof(external_cases) / sizeof(external_cases[0]); i++)
+        entries[count++] = &external_cases[i];
+    qsort(entries, count, sizeof(entries[0]), catalog_compare);
+    for (size_t i = 0; i < count; i++)
+        printf("%-20s %-9s %s\n", entries[i]->name, entries[i]->id, entries[i]->description);
+}
+
 void suite_require(bool condition, const char *reason)
 {
     if (!condition) {
@@ -108,6 +165,10 @@ static int overflow_child(bool fixed)
 }
 int main(int argc, char **argv)
 {
+    if (argc == 2 && !strcmp(argv[1], "--catalog")) {
+        catalog_list();
+        return 0;
+    }
     if(argc>=2 && !strcmp(argv[1],"--peer")) return suite_peer(argc,argv);
     if (argc == 3 && !strcmp(argv[1], "--overflow-child"))
         return overflow_child(!strcmp(argv[2], "fixed"));

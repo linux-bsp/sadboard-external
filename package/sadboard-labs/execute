@@ -35,22 +35,7 @@ advanced() {
 }
 case "${1:-}" in
     list)
-        [ ! -x "$tools/case-suite" ] || "$tools/case-suite" --list
-        echo 'kernel-oops B-BOOT04 Manual kernel BUG and panic-on-oops recovery (run only)'
-        echo 'kernel-lockup B-BOOT05 Real soft/hard lockup and proven hardware watchdog recovery (run only)'
-        echo 'boot-initlib B-BOOT02 Real RAM PID1 loader fault; use host scripts/sadboard-board.py'
-        echo 'boot-root B-BOOT03 Real RAM kernel VFS root fault; use host scripts/sadboard-board.py'
-        echo 'watchdog-probe Hardware recovery prerequisite for kernel-lockup (run only)'
-        echo 'crash  Application exits on an unknown record; GDB/core exercise'
-        echo 'oom    Memory grows until a dedicated 32 MiB cgroup kills the child'
-        echo 'cpu    Repeated table lookup consumes CPU; perf exercise'
-        echo 'lock   Two workers wait while a mutex covers simulated I/O'
-        echo 'fd     Repeated requests leak descriptors under a process-only limit of 64'
-        echo 'network Isolated veth delay; ping, iperf3, tcpdump and tc exercise'
-        echo 'panic  Deliberate kernel panic and reboot; check persistent evidence afterwards'
-        echo 'deadline Periodic telemetry drifts despite low CPU; release-time CSV and absolute timers'
-        echo 'backlog Slow downstream consumer causes memory growth; bounded queue and backpressure'
-        echo 'tcp     Many small telemetry writes consume CPU; framed TCP batching in an owned namespace'
+        exec "$tools/case-suite" --catalog
         ;;
     run)
         [ "$#" -ge 2 ] || usage
