@@ -947,6 +947,75 @@ static void async_check(const char *scenario, int verify)
     if (cleanup[17] || cleanup[18] || cleanup[19]) reject("async resources not reclaimed");
 }
 
+static void study_check(const char *scenario, int verify)
+{
+    static const char *const names[] = {"sync-transaction", "sync-trylock", "sync-assert", "rcu-readside", "rcu-srcu", "rcu-callback"};
+    static const char *const keys[] = {"kind", "fixed", "active", "held", "error", "operations", "accepted", "completed",
+        "value", "failures", "lock_held", "lockdep_enabled", "warnings", "reader_held", "retired_early", "callbacks", "old_read", "new_read"};
+    static const char *const events[] = {"start", "clean", "load", "update", "result", "try-busy", "try-free", "assert",
+        "readside", "reader-enter", "publish", "retire", "reader-use", "reader-exit", "rcu-callback"};
+    static const char *const functions[] = {"transaction_worker", "sb_control_write", "assert_business_lock", "sb_control_write", "config_reader", "config_reader"};
+    unsigned kind;
+    for (kind = 0; kind < 6 && strcmp(scenario, names[kind]); kind++) {}
+    if (kind == 6) reject("unknown synchronization study");
+    for (unsigned fixed = 0; fixed < (verify ? 2U : 1U); fixed++) {
+        char file[96], line[2048];
+        uint64_t v[18], expected[18] = {0};
+        expected[0] = kind; expected[1] = fixed; expected[11] = 1;
+        if (kind == 0) { expected[5] = expected[6] = expected[7] = 2; expected[8] = fixed ? 2 : 1; }
+        if (kind == 1) { expected[5] = 2; expected[6] = expected[10] = 1; expected[7] = fixed; expected[9] = !fixed; }
+        if (kind == 2) { expected[10] = fixed; expected[12] = !fixed; }
+        if (kind == 3) expected[13] = fixed;
+        if (kind >= 4) { expected[5] = expected[6] = expected[7] = 1; expected[14] = !fixed; expected[16] = 42; expected[17] = 84; if (kind == 5) expected[15] = fixed; }
+        snprintf(file, sizeof(file), "study-%s.out", fixed ? "fixed" : "bug"); numeric_json(file, keys, 18, v);
+        for (unsigned i = 0; i < 18; i++) if (v[i] != expected[i]) reject("synchronization outcome/resource contract");
+        snprintf(file, sizeof(file), "study-%s.csv", fixed ? "fixed" : "bug");
+        FILE *f = open_file(file, 32768);
+        if (!fgets(line, sizeof(line), f) || strcmp(line, "index,ns,event,value,cpu,pid,in_interrupt,irqs_disabled\n")) reject("study CSV header");
+        unsigned count = 0, hits[15] = {0}, positions[15] = {0}; uint64_t sums[15] = {0}, previous = 0;
+        while (fgets(line, sizeof(line), f)) {
+            unsigned index, value, cpu, pid, irq, disabled, event; uint64_t ns; char name[32], extra;
+            if (sscanf(line, "%u,%" SCNu64 ",%31[^,],%u,%u,%u,%u,%u %c", &index, &ns, name, &value, &cpu, &pid, &irq, &disabled, &extra) != 8 ||
+                index != count || count >= 128 || !ns || ns < previous || irq > 1 || disabled > 1) reject("study CSV time/context");
+            for (event = 0; event < 15 && strcmp(name, events[event]); event++) {}
+            if (event == 15 || (hits[event] && event != 2 && event != 3)) reject("study event identity");
+            hits[event]++; sums[event] += value; positions[event] = count++; previous = ns;
+        }
+        fclose(f);
+        if (hits[0] != 1 || positions[0] || sums[0] != kind || hits[1] != 1 || positions[1] != count - 1 || sums[1]) reject("study event boundaries");
+        if (kind == 0 && (count != 7 || hits[2] != 2 || hits[3] != 2 || sums[2] != fixed || hits[4] != 1 || sums[4] != v[8])) reject("spin transaction transcript");
+        if (kind == 1 && (count != 5 || hits[5] != 1 || sums[5] || hits[6] != 1 || sums[6] != 1 || sums[4] != fixed)) reject("trylock transcript");
+        if (kind == 2 && (count != 3 || hits[7] != 1 || sums[7] != fixed)) reject("assertion transcript");
+        if (kind == 3 && (count != 3 || hits[8] != 1 || sums[8] != fixed)) reject("RCU lock state transcript");
+        if (kind >= 4) {
+            unsigned retirement = kind == 5 && fixed ? 14 : 11;
+            if (count != 7 || hits[9] != 1 || hits[10] != 1 || hits[12] != 1 || hits[13] != 1 || hits[retirement] != 1 ||
+                sums[9] != 42 || sums[10] != 84 || sums[12] != !fixed || (positions[retirement] > positions[12]) != fixed)
+                reject("RCU retirement/grace transcript");
+        }
+        snprintf(file, sizeof(file), "study-%s.ftrace", fixed ? "fixed" : "bug"); f = open_file(file, 2 * 1024 * 1024);
+        bool tracer = false, callback = false;
+        while (fgets(line, sizeof(line), f)) { tracer |= strstr(line, "# tracer: function") != NULL; callback |= strstr(line, functions[kind]) != NULL && strstr(line, " <-") != NULL; }
+        fclose(f); if (!tracer || !callback) reject("study function trace missing");
+        snprintf(file, sizeof(file), "study-%s-stats.txt", fixed ? "fixed" : "bug"); f = open_file(file, 16384); unsigned stats = 0;
+        while (fgets(line, sizeof(line), f)) if (strstr(line, "overrun:") || strstr(line, "dropped events:")) { char *p = strchr(line, ':') + 1; skip_space(&p); if (number(&p)) reject("study trace lost records"); stats++; }
+        fclose(f); if (!stats) reject("study trace stats missing");
+        if (kind == 2) {
+            snprintf(file, sizeof(file), "study-%s-kernel.log", fixed ? "fixed" : "bug"); f = open_file(file, 4 * 1024 * 1024);
+            char begin[80], end[80]; snprintf(begin, sizeof(begin), "sadboard-sync: ASSERT_BEGIN fixed=%u", fixed); snprintf(end, sizeof(end), "sadboard-sync: ASSERT_END fixed=%u", fixed);
+            bool inside = false, completed = false, warning = false;
+            while (fgets(line, sizeof(line), f)) {
+                if (strstr(line, begin)) { inside = true; completed = warning = false; }
+                if (inside && strstr(line, "WARNING:")) warning = true;
+                if (inside && strstr(line, end)) { inside = false; completed = true; }
+            }
+            fclose(f); if (!completed || warning == fixed) reject("real lockdep assertion evidence missing");
+        }
+    }
+    uint64_t cleanup[18]; numeric_json("study-cleanup.out", keys, 18, cleanup);
+    if (cleanup[2] || cleanup[3] || cleanup[4]) reject("study resources still owned");
+}
+
 static void student_evidence(void)
 {
     static const char *const keys[] = {"tests", "passed", "failed", "candidate_size"};
@@ -1037,6 +1106,9 @@ int main(int argc, char **argv)
         if (!strcmp(scenario, "deadline")) deadline_check(mode, argc - 5, argv + 5);
         else if (!strcmp(scenario, "backlog")) backlog_check(mode, argc - 5, argv + 5);
         else tcp_check(mode, argc - 5, argv + 5);
+    } else if (!strcmp(scenario, "sync-transaction") || !strcmp(scenario, "sync-trylock") || !strcmp(scenario, "sync-assert") || !strncmp(scenario, "rcu-", 4)) {
+        if (argc != 5 || code) reject("study exit/parameters");
+        study_check(scenario, verify);
     } else if (!strncmp(scenario, "async-", 6)) {
         if (argc != 5 || code) reject("async exit/parameters");
         async_check(scenario, verify);

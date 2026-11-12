@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+operation=$1; scenario=$2; run=$3
+module=sadboard-sync; symbol=sadboard_sync
+case "$scenario" in
+    sync-transaction) kind=transaction ;;
+    sync-trylock) kind=trylock ;;
+    sync-assert) kind=assert ;;
+    rcu-readside) kind=readside ;;
+    rcu-srcu) kind=srcu ;;
+    rcu-callback) kind=callback ;;
+    *) exit 64 ;;
+esac
+interface=/sys/kernel/debug/$module
+owner=/run/sadboard-study-owner
+trace=
+cleanup() {
+    if [ -n "$trace" ] && [ -d "$trace" ]; then
+        echo 0 > "$trace/tracing_on"; echo nop > "$trace/current_tracer"; rmdir "$trace"
+    fi
+    if [ -d "/sys/module/$symbol" ]; then
+        echo clear > "$interface/control"
+        cat "$interface/status" > "$run/study-cleanup.out"
+        rmmod "$symbol"
+    fi
+    rm -f "$owner"
+}
+if [ "$operation" = reset ]; then
+    [ -f "$owner" ] && [ "$(cat "$owner")" = "$run" ] || exit 0
+    if [ -f "$run/study-trace-instance.txt" ]; then
+        trace=$(cat "$run/study-trace-instance.txt")
+        number=${trace#/sys/kernel/tracing/instances/sadboard-study-}
+        case "$number" in ''|*[!0-9]*) exit 75 ;; esac
+    fi
+    cleanup; exit 0
+fi
+[ -r /proc/lockdep_stats ] || { echo "[sadboard] [ERROR] Matching lockdep kernel is required" >&2; exit 75; }
+[ "$(cat /proc/sys/kernel/panic_on_warn)" = 0 ] || {
+    echo '[sadboard] [ERROR] Study requires panic_on_warn=0; no setting was changed' >&2; exit 75;
+}
+[ ! -d "/sys/module/$symbol" ] && [ ! -e "$owner" ] || exit 75
+if [ -n "${SADBOARD_STUDY_MODULE:-}" ]; then insmod "$SADBOARD_STUDY_MODULE"; else modprobe "$module"; fi
+printf '%s\n' "$run" > "$owner"
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+trace=/sys/kernel/tracing/instances/sadboard-study-$$
+mkdir "$trace"; printf '%s\n' "$trace" > "$run/study-trace-instance.txt"
+echo 0 > "$trace/tracing_on"; echo 64 > "$trace/buffer_size_kb"; echo mono > "$trace/trace_clock"
+printf '*:mod:%s\n' "$symbol" > "$trace/set_ftrace_filter"
+cat "$trace/set_ftrace_filter" > "$run/study-filter.txt"
+echo function > "$trace/current_tracer"
+for variant in bug fixed; do
+    [ "$variant:$operation" != fixed:run ] || break
+    printf '' > "$trace/trace"; echo 1 > "$trace/tracing_on"
+    printf 'start %s %s\n' "$kind" "$variant" > "$interface/control"
+    echo 0 > "$trace/tracing_on"
+    cat "$interface/status" > "$run/study-$variant.out"
+    cat "$interface/events" > "$run/study-$variant.csv"
+    cat "$trace/trace" > "$run/study-$variant.ftrace"
+    for stats in "$trace"/per_cpu/cpu*/stats; do cat "$stats"; done > "$run/study-$variant-stats.txt"
+    dmesg > "$run/study-$variant-kernel.log"
+done

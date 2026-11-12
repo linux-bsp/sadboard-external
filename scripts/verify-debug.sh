@@ -34,12 +34,12 @@ for name in crash.c cpu.c memory.c lock.c fd.c deadline.c backlog.c tcp.c lab.h 
 for name in "${required[@]}" "${labs[@]}"; do
     "$jq" -e --arg name "$name" '.sha256|has($name)' "$root/build-info.json" >/dev/null
 done
-for name in vmlinux kernel/sadboard-faults.ko kernel/sadboard-driver.ko kernel/sadboard-async.ko labs/watchdog-probe "${labs[@]}"; do
+for name in vmlinux kernel/sadboard-faults.ko kernel/sadboard-driver.ko kernel/sadboard-async.ko kernel/sadboard-sync.ko labs/watchdog-probe "${labs[@]}"; do
     verify_elf "$root/$name"
     sections=$(readelf --sections --wide "$root/$name")
     [[ $sections == *'.debug_info'* ]] || { echo "Debug symbols stripped: $name" >&2; exit 1; }
 done
-for symbol in CMA_DEBUGFS SOFTLOCKUP_DETECTOR MAGIC_SYSRQ_SERIAL DEBUG_INFO_DWARF4 FUNCTION_TRACER \
+for symbol in PROVE_LOCKING PROVE_RCU DEBUG_ATOMIC_SLEEP CMA_DEBUGFS SOFTLOCKUP_DETECTOR MAGIC_SYSRQ_SERIAL DEBUG_INFO_DWARF4 FUNCTION_TRACER \
     MEMCG COREDUMP CORE_DUMP_DEFAULT_ELF_HEADERS NET_NS VETH NET_SCH_NETEM NET_SCH_HTB NET_SCH_TBF \
     NET_SCH_INGRESS NET_CLS_U32 NET_ACT_GACT; do
     grep -Fxq "CONFIG_$symbol=y" "$root/kernel.config" || { echo "Missing kernel capability: $symbol" >&2; exit 1; }

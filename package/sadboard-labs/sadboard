@@ -39,6 +39,7 @@ case "${1:-}" in
             cpu:5|lock:4|fd:4|deadline:5|backlog:4|tcp:3) ;;
             driver-match:2|driver-property:2|driver-defer:2|driver-unwind:2|driver-remove:2) ;;
             async-coalesce:2|async-ordered:2|async-predicate:2|async-reference:2|async-stop:2) ;;
+            sync-transaction:2|sync-trylock:2|sync-assert:2|rcu-readside:2|rcu-srcu:2|rcu-callback:2) ;;
             *)
                 [ "$#" = 2 ] && [ -x "$tools/case-suite" ] && "$tools/case-suite" --has "$scenario" || usage ;;
         esac
@@ -149,6 +150,7 @@ EOF
             --setenv="SADBOARD_RUN=$run" --setenv="SADBOARD_LIBEXEC=$tools" \
             --setenv="SADBOARD_DRIVER_MODULE=${SADBOARD_DRIVER_MODULE:-}" \
             --setenv="SADBOARD_ASYNC_MODULE=${SADBOARD_ASYNC_MODULE:-}" \
+            --setenv="SADBOARD_STUDY_MODULE=${SADBOARD_STUDY_MODULE:-}" \
             sh "$tools/execute" "$operation" "$scenario" "$@" \
             > "$run/supervisor.log" 2>&1 || result=$?
         trap - INT TERM HUP
@@ -208,6 +210,8 @@ EOF
                     "$tools/watchdog-probe" --lock sh -c 'echo release > /sys/kernel/debug/sadboard-faults/control'
                 fi
                 case "$(read_field case "$run/run.info")" in
+                    sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
+                        "$tools/watchdog-probe" --lock sh "$tools/run-study" reset "$(read_field case "$run/run.info")" "$run" ;;
                     async-coalesce|async-ordered|async-predicate|async-reference|async-stop)
                         "$tools/watchdog-probe" --lock sh "$tools/run-async" reset "$(read_field case "$run/run.info")" "$run" ;;
                     driver-match|driver-property|driver-defer|driver-unwind|driver-remove)
