@@ -1016,6 +1016,74 @@ static void study_check(const char *scenario, int verify)
     if (cleanup[2] || cleanup[3] || cleanup[4]) reject("study resources still owned");
 }
 
+static void irq_study_check(const char *scenario, int verify)
+{
+    static const char *const names[] = {"irq-ownership", "irq-wake", "irq-shared", "irq-defer", "irq-drain"};
+    static const char *const keys[] = {"kind", "fixed", "active", "held", "error", "irq_number", "top_calls",
+        "thread_calls", "work_calls", "business", "hard_context", "irqs_off", "process_context", "late", "removed",
+        "primary_return", "secondary_return", "top_business", "checksum"};
+    static const char *const events[] = {"start", "clean", "inject", "top-enter", "top-return", "thread-enter",
+        "thread-use", "work-enter", "work-use", "remove", "drained", "released"};
+    unsigned kind;
+    for (kind = 0; kind < 5 && strcmp(scenario, names[kind]); kind++) {}
+    if (kind == 5) reject("unknown IRQ study");
+    for (unsigned fixed = 0; fixed < (verify ? 2U : 1U); fixed++) {
+        char file[96], line[2048];
+        uint64_t v[19], expected[19] = {0};
+        snprintf(file, sizeof(file), "study-%s.out", fixed ? "fixed" : "bug"); numeric_json(file, keys, 19, v);
+        if (!v[5] || v[5] > 1048576) reject("owned IRQ number");
+        expected[0] = kind; expected[1] = fixed; expected[5] = v[5];
+        expected[6] = expected[10] = expected[11] = kind == 2 ? 2 : 1;
+        if (!kind) { expected[9] = expected[15] = expected[17] = expected[18] = fixed; }
+        if (kind == 1) { expected[7] = expected[9] = expected[12] = expected[18] = fixed; expected[15] = fixed ? 2 : 1; }
+        if (kind == 2) { expected[9] = expected[17] = expected[18] = fixed ? 1 : 2; expected[15] = 1; expected[16] = !fixed; }
+        if (kind == 3) { expected[8] = expected[12] = fixed; expected[9] = 64; expected[15] = 1; expected[17] = fixed ? 0 : 64; expected[18] = 2080; }
+        if (kind == 4) { expected[7] = expected[12] = expected[14] = 1; expected[15] = 2; expected[9] = expected[18] = fixed; expected[13] = !fixed; }
+        for (unsigned i = 0; i < 19; i++) if (v[i] != expected[i]) reject("IRQ outcome/context/resource contract");
+        snprintf(file, sizeof(file), "study-%s.csv", fixed ? "fixed" : "bug"); FILE *f = open_file(file, 32768);
+        if (!fgets(line, sizeof(line), f) || strcmp(line, "index,ns,event,value,cpu,pid,in_interrupt,irqs_disabled\n")) reject("IRQ CSV header");
+        unsigned count = 0, hits[12] = {0}, pos[12] = {0}; uint64_t sums[12] = {0}, previous = 0;
+        while (fgets(line, sizeof(line), f)) {
+            unsigned index, value, cpu, pid, irq, disabled, event; uint64_t ns; char name[32], extra;
+            if (sscanf(line, "%u,%" SCNu64 ",%31[^,],%u,%u,%u,%u,%u %c", &index, &ns, name, &value, &cpu, &pid, &irq, &disabled, &extra) != 8 ||
+                index != count || count >= 128 || !ns || ns < previous || irq > 1 || disabled > 1) reject("IRQ CSV time/context");
+            for (event = 0; event < 12 && strcmp(name, events[event]); event++) {}
+            if (event == 12 || (hits[event] && !(kind == 2 && (event == 3 || event == 4)))) reject("IRQ event identity");
+            if ((event == 3 || event == 4) && (irq != 1 || disabled != 1)) reject("top half is not hard interrupt context");
+            if (event >= 5 && event <= 8 && (irq || disabled)) reject("bottom half is not process context");
+            hits[event]++; sums[event] += value; pos[event] = count++; previous = ns;
+        }
+        fclose(f);
+        unsigned threads = expected[7], works = expected[8];
+        unsigned expected_count = 5 + 2 * expected[6] + 2 * threads + 2 * works + (kind == 4);
+        if (count != expected_count || hits[0] != 1 || pos[0] || sums[0] != kind || hits[1] != 1 || pos[1] != count - 1 || sums[1] ||
+            hits[2] != 1 || sums[2] != v[5] || hits[3] != expected[6] || hits[4] != expected[6] || sums[3] != (kind == 2) ||
+            sums[4] != expected[15] + expected[16] || hits[5] != threads || hits[6] != threads || hits[7] != works || hits[8] != works ||
+            sums[5] != threads || sums[6] != expected[13] || sums[7] != works || sums[8] != 64 * works ||
+            hits[9] != (kind == 4) || sums[9] != (kind == 4) || hits[10] != 1 || sums[10] != 1 || hits[11] != 1 || sums[11] != v[5] ||
+            pos[2] > pos[3] || pos[3] > pos[4] || pos[4] > pos[10] || pos[10] > pos[11]) reject("IRQ raw event contract");
+        if (threads && (pos[4] > pos[5] || pos[5] > pos[6] || pos[6] > pos[10])) reject("IRQ thread ordering");
+        if (works && (pos[7] > pos[8] || pos[8] > pos[10])) reject("IRQ work ordering");
+        if (kind == 4 && ((pos[9] > pos[6]) != fixed)) reject("IRQ removal/drain ordering");
+        snprintf(file, sizeof(file), "study-%s.ftrace", fixed ? "fixed" : "bug"); f = open_file(file, 2 * 1024 * 1024);
+        bool tracer = false, top = false, source = false, thread = false, work = false;
+        while (fgets(line, sizeof(line), f)) {
+            tracer |= strstr(line, "# tracer: function") != NULL;
+            if (!strstr(line, " <-")) continue;
+            top |= strstr(line, "sb_irq_top") != NULL; source |= strstr(line, "inject_irq") != NULL;
+            thread |= strstr(line, "sb_irq_thread") != NULL; work |= strstr(line, "sb_irq_deferred") != NULL;
+        }
+        fclose(f); if (!tracer || !top || !source || thread != !!threads || work != !!works) reject("IRQ independent callback trace");
+        snprintf(file, sizeof(file), "study-%s-stats.txt", fixed ? "fixed" : "bug"); f = open_file(file, 16384); unsigned stats = 0;
+        while (fgets(line, sizeof(line), f)) if (strstr(line, "overrun:") || strstr(line, "dropped events:")) {
+            char *p = strchr(line, ':') + 1; skip_space(&p); if (number(&p)) reject("IRQ trace lost records"); stats++;
+        }
+        fclose(f); if (!stats) reject("IRQ trace stats missing");
+    }
+    uint64_t cleanup[19]; numeric_json("study-cleanup.out", keys, 19, cleanup);
+    if (cleanup[2] || cleanup[3] || cleanup[4]) reject("IRQ resources remain");
+}
+
 static void student_evidence(void)
 {
     static const char *const keys[] = {"tests", "passed", "failed", "candidate_size"};
@@ -1106,6 +1174,9 @@ int main(int argc, char **argv)
         if (!strcmp(scenario, "deadline")) deadline_check(mode, argc - 5, argv + 5);
         else if (!strcmp(scenario, "backlog")) backlog_check(mode, argc - 5, argv + 5);
         else tcp_check(mode, argc - 5, argv + 5);
+    } else if (!strncmp(scenario, "irq-", 4)) {
+        if (argc != 5 || code) reject("IRQ exit/parameters");
+        irq_study_check(scenario, verify);
     } else if (!strcmp(scenario, "sync-transaction") || !strcmp(scenario, "sync-trylock") || !strcmp(scenario, "sync-assert") || !strncmp(scenario, "rcu-", 4)) {
         if (argc != 5 || code) reject("study exit/parameters");
         study_check(scenario, verify);

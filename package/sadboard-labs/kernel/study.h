@@ -16,7 +16,7 @@ struct sb_observation {
     unsigned int value, cpu, pid, irq, disabled;
 };
 static DEFINE_MUTEX(sb_control_lock);
-static DEFINE_SPINLOCK(sb_event_lock);
+static DEFINE_RAW_SPINLOCK(sb_event_lock);
 static struct dentry *sb_directory;
 static struct sb_observation sb_events[128];
 static unsigned int sb_count;
@@ -31,11 +31,11 @@ static void sb_event(const char *name, unsigned int value)
 {
     unsigned long flags;
     bool disabled = irqs_disabled(), irq = in_interrupt();
-    spin_lock_irqsave(&sb_event_lock, flags);
+    raw_spin_lock_irqsave(&sb_event_lock, flags);
     if (sb_count < ARRAY_SIZE(sb_events))
         sb_events[sb_count++] = (struct sb_observation){ktime_get_ns(), name, value,
             raw_smp_processor_id(), current->pid, irq, disabled};
-    spin_unlock_irqrestore(&sb_event_lock, flags);
+    raw_spin_unlock_irqrestore(&sb_event_lock, flags);
 }
 
 static ssize_t sb_control_write(struct file *file, const char __user *input,

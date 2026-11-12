@@ -157,7 +157,7 @@ class Labs(unittest.TestCase):
         groups += [('K-' + group, 1) for group in ('MM', 'VFS', 'IPC', 'TIME', 'PROC', 'NET', 'IO', 'SCHED')]
         groups += [('K-DRV', 5)]
         groups += [('K-ASY', 5)]
-        groups += [('K-LOCK', 3), ('K-RCU', 3)]
+        groups += [('K-LOCK', 3), ('K-RCU', 3), ('K-IRQ', 5)]
         expected = [f'{group}{number:02d}' for group, count in groups for number in range(1, count + 1)]
         self.assertEqual([row[0] for row in rows], expected)
         self.assertEqual(auxiliary.split(maxsplit=1)[0], 'watchdog-probe')
@@ -165,7 +165,7 @@ class Labs(unittest.TestCase):
                        'lock': 'B-SYNC01', 'network': 'B-NET01', 'panic': 'B-BOOT01',
                        'deadline': 'A-P01', 'backlog': 'A-M01', 'tcp': 'A-N01'}
         indexed = {row[1]: row[0] for row in rows}
-        self.assertEqual(len(indexed), 91)
+        self.assertEqual(len(indexed), 96)
         for command, case_id in first_cases.items():
             self.assertEqual(indexed[command], case_id)
         for prefix in [group for group, _ in groups] + ['B-', 'A-', 'K-', 'L-', 'B-CR01', 'B-CR0']:

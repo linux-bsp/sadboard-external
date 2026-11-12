@@ -62,13 +62,18 @@ static const struct suite_case external_cases[] = {
     {"rcu-readside", "K-RCU01", "Missing read-side section detected by live lock state", NULL},
     {"rcu-srcu", "K-RCU02", "Early logical retirement ignores a sleeping SRCU reader", NULL},
     {"rcu-callback", "K-RCU03", "Configuration retired before a classic RCU reader exits", NULL},
+    {"irq-ownership", "K-IRQ01", "Owned software IRQ is incorrectly rejected as IRQ_NONE", NULL},
+    {"irq-wake", "K-IRQ02", "IRQ_HANDLED does not request the registered IRQ thread", NULL},
+    {"irq-shared", "K-IRQ03", "Shared handler accepts an event owned by another cookie", NULL},
+    {"irq-defer", "K-IRQ04", "Bounded batch runs in the top half instead of deferred work", NULL},
+    {"irq-drain", "K-IRQ05", "Logical teardown does not wait for the IRQ thread", NULL},
 };
 
 static unsigned catalog_group(const char *id)
 {
     static const char *const groups[] = {
         "B-CR", "B-FD", "B-MM", "B-CPU", "B-SYNC", "B-NET", "B-BOOT", "A-P", "A-M", "A-N",
-        "L-ASM", "K-MM", "K-VFS", "K-IPC", "K-TIME", "K-PROC", "K-NET", "K-IO", "K-SCHED", "K-DRV", "K-ASY", "K-LOCK", "K-RCU"
+        "L-ASM", "K-MM", "K-VFS", "K-IPC", "K-TIME", "K-PROC", "K-NET", "K-IO", "K-SCHED", "K-DRV", "K-ASY", "K-LOCK", "K-RCU", "K-IRQ"
     };
     unsigned count = sizeof(groups) / sizeof(groups[0]);
     for (unsigned i = 0; i < count; i++)

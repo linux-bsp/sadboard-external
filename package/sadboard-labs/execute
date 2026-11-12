@@ -64,7 +64,7 @@ case "${1:-}" in
             network) new_run network; exec "$tools/run-network" bug "$run" ;;
             kernel-oops|kernel-lockup|watchdog-probe) new_run "$2"; exec "$tools/watchdog-probe" --lock sh "$tools/run-kernel" "$2" "$run" ;;
             memory-cma) new_run memory-cma; exec "$tools/watchdog-probe" --lock sh "$tools/run-cma" run "$run" ;;
-            sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
+            irq-ownership|irq-wake|irq-shared|irq-defer|irq-drain|sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
                 new_run "$2-run"
                 "$tools/watchdog-probe" --lock sh "$tools/run-study" run "$2" "$run"
                 cat "$run/study-bug.out" ;;
@@ -91,7 +91,7 @@ case "${1:-}" in
         [ "$#" -ge 2 ] || usage
         case "$2" in
             memory-cma) new_run memory-cma; exec "$tools/watchdog-probe" --lock sh "$tools/run-cma" verify "$run" ;;
-            sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
+            irq-ownership|irq-wake|irq-shared|irq-defer|irq-drain|sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
                 new_run "$2-verify"
                 "$tools/watchdog-probe" --lock sh "$tools/run-study" verify "$2" "$run"
                 cat "$run/study-bug.out" "$run/study-fixed.out"

@@ -34,7 +34,7 @@ for name in crash.c cpu.c memory.c lock.c fd.c deadline.c backlog.c tcp.c lab.h 
 for name in "${required[@]}" "${labs[@]}"; do
     "$jq" -e --arg name "$name" '.sha256|has($name)' "$root/build-info.json" >/dev/null
 done
-for name in vmlinux kernel/sadboard-faults.ko kernel/sadboard-driver.ko kernel/sadboard-async.ko kernel/sadboard-sync.ko labs/watchdog-probe "${labs[@]}"; do
+for name in vmlinux kernel/sadboard-faults.ko kernel/sadboard-driver.ko kernel/sadboard-async.ko kernel/sadboard-sync.ko kernel/sadboard-irq.ko labs/watchdog-probe "${labs[@]}"; do
     verify_elf "$root/$name"
     sections=$(readelf --sections --wide "$root/$name")
     [[ $sections == *'.debug_info'* ]] || { echo "Debug symbols stripped: $name" >&2; exit 1; }

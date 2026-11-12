@@ -3,6 +3,11 @@ set -eu
 operation=$1; scenario=$2; run=$3
 module=sadboard-sync; symbol=sadboard_sync
 case "$scenario" in
+    irq-ownership) module=sadboard-irq; symbol=sadboard_irq; kind=ownership ;;
+    irq-wake) module=sadboard-irq; symbol=sadboard_irq; kind=wake ;;
+    irq-shared) module=sadboard-irq; symbol=sadboard_irq; kind=shared ;;
+    irq-defer) module=sadboard-irq; symbol=sadboard_irq; kind=defer ;;
+    irq-drain) module=sadboard-irq; symbol=sadboard_irq; kind=drain ;;
     sync-transaction) kind=transaction ;;
     sync-trylock) kind=trylock ;;
     sync-assert) kind=assert ;;
@@ -38,6 +43,9 @@ fi
 [ "$(cat /proc/sys/kernel/panic_on_warn)" = 0 ] || {
     echo '[sadboard] [ERROR] Study requires panic_on_warn=0; no setting was changed' >&2; exit 75;
 }
+[ "$(sed -n 's/.*debug_locks:[[:space:]]*//p' /proc/lockdep_stats)" = 1 ] || {
+    echo '[sadboard] [ERROR] lockdep is disabled; reboot a matching healthy debug kernel first' >&2; exit 75;
+}
 [ ! -d "/sys/module/$symbol" ] && [ ! -e "$owner" ] || exit 75
 if [ -n "${SADBOARD_STUDY_MODULE:-}" ]; then insmod "$SADBOARD_STUDY_MODULE"; else modprobe "$module"; fi
 printf '%s\n' "$run" > "$owner"
@@ -54,6 +62,10 @@ for variant in bug fixed; do
     printf '' > "$trace/trace"; echo 1 > "$trace/tracing_on"
     printf 'start %s %s\n' "$kind" "$variant" > "$interface/control"
     echo 0 > "$trace/tracing_on"
+    [ "$(sed -n 's/.*debug_locks:[[:space:]]*//p' /proc/lockdep_stats)" = 1 ] || {
+        dmesg > "$run/study-lockdep-failed.log"
+        echo '[sadboard] [ERROR] Experiment disabled lockdep; evidence rejected' >&2; exit 75;
+    }
     cat "$interface/status" > "$run/study-$variant.out"
     cat "$interface/events" > "$run/study-$variant.csv"
     cat "$trace/trace" > "$run/study-$variant.ftrace"

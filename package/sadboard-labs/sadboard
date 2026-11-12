@@ -40,6 +40,7 @@ case "${1:-}" in
             driver-match:2|driver-property:2|driver-defer:2|driver-unwind:2|driver-remove:2) ;;
             async-coalesce:2|async-ordered:2|async-predicate:2|async-reference:2|async-stop:2) ;;
             sync-transaction:2|sync-trylock:2|sync-assert:2|rcu-readside:2|rcu-srcu:2|rcu-callback:2) ;;
+            irq-ownership:2|irq-wake:2|irq-shared:2|irq-defer:2|irq-drain:2) ;;
             *)
                 [ "$#" = 2 ] && [ -x "$tools/case-suite" ] && "$tools/case-suite" --has "$scenario" || usage ;;
         esac
@@ -210,7 +211,7 @@ EOF
                     "$tools/watchdog-probe" --lock sh -c 'echo release > /sys/kernel/debug/sadboard-faults/control'
                 fi
                 case "$(read_field case "$run/run.info")" in
-                    sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
+                    irq-ownership|irq-wake|irq-shared|irq-defer|irq-drain|sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
                         "$tools/watchdog-probe" --lock sh "$tools/run-study" reset "$(read_field case "$run/run.info")" "$run" ;;
                     async-coalesce|async-ordered|async-predicate|async-reference|async-stop)
                         "$tools/watchdog-probe" --lock sh "$tools/run-async" reset "$(read_field case "$run/run.info")" "$run" ;;
