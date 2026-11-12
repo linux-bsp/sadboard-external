@@ -3,6 +3,11 @@ set -eu
 operation=$1; scenario=$2; run=$3
 module=sadboard-sync; symbol=sadboard_sync
 case "$scenario" in
+    pm-geterror) module=sadboard-power; symbol=sadboard_power; kind=geterror ;;
+    pm-autosuspend) module=sadboard-power; symbol=sadboard_power; kind=autosuspend ;;
+    pm-workref) module=sadboard-power; symbol=sadboard_power; kind=workref ;;
+    pm-unwind) module=sadboard-power; symbol=sadboard_power; kind=unwind ;;
+    pm-policy) module=sadboard-power; symbol=sadboard_power; kind=policy ;;
     irq-ownership) module=sadboard-irq; symbol=sadboard_irq; kind=ownership ;;
     irq-wake) module=sadboard-irq; symbol=sadboard_irq; kind=wake ;;
     irq-shared) module=sadboard-irq; symbol=sadboard_irq; kind=shared ;;

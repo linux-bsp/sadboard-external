@@ -15,6 +15,25 @@ define SADBOARD_LABS_INSTALL_TARGET_CMDS
     $(TARGET_MAKE_ENV) $(MAKE) -C $(@D) $(SADBOARD_LABS_MAKE_OPTS) DESTDIR=$(TARGET_DIR) install
 endef
 
+# The disposable storage laboratory fixture is built by native host tools.
+SADBOARD_LABS_DEPENDENCIES += host-e2fsprogs
+
+define SADBOARD_LABS_FIXTURE
+    mkdir -p $(@D)/fixtures
+    rm -f $(@D)/fixtures/storage.ext4
+    truncate -s 16M $(@D)/fixtures/storage.ext4
+    E2FSPROGS_FAKE_TIME=1700000000 $(HOST_DIR)/sbin/mke2fs -q -F -t ext4 -b 4096 -m 0 \
+        -U 04200000-0000-4000-8000-000000000001 -O ^has_journal \
+        -E lazy_itable_init=0,lazy_journal_init=0,hash_seed=04200000-0000-4000-8000-000000000001 \
+        $(@D)/fixtures/storage.ext4
+endef
+SADBOARD_LABS_POST_BUILD_HOOKS += SADBOARD_LABS_FIXTURE
+
+define SADBOARD_LABS_INSTALL_FIXTURE
+    $(INSTALL) -D -m 0644 $(@D)/fixtures/storage.ext4 $(TARGET_DIR)/usr/libexec/sadboard/fixtures/storage.ext4
+endef
+SADBOARD_LABS_POST_INSTALL_TARGET_HOOKS += SADBOARD_LABS_INSTALL_FIXTURE
+
 SADBOARD_LABS_MODULE_SUBDIRS = kernel
 $(eval $(kernel-module))
 $(eval $(generic-package))

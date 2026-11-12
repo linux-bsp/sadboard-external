@@ -1084,6 +1084,87 @@ static void irq_study_check(const char *scenario, int verify)
     if (cleanup[2] || cleanup[3] || cleanup[4]) reject("IRQ resources remain");
 }
 
+static void power_study_check(const char *scenario, int verify)
+{
+    static const char *const names[] = {"pm-geterror","pm-autosuspend","pm-workref","pm-unwind","pm-policy"};
+    static const char *const keys[] = {"kind","fixed","active","held","error","usage","suspended","auto_allowed","resume_calls","suspend_calls","api_error","work_calls","late","payload","final_usage","final_auto"};
+    static const char *const events[] = {"start","clean","configured","resume","suspend","get","put","forbid","allow","work","init-error","snapshot","released"};
+    unsigned kind;for(kind=0;kind<5&&strcmp(scenario,names[kind]);kind++){}if(kind==5)reject("unknown power study");
+    for(unsigned fixed=0;fixed<(verify?2U:1U);fixed++){
+        char path[96],line[2048];uint64_t v[16],e[16]={0};
+        e[0]=kind;e[1]=fixed;e[7]=e[8]=e[15]=1;
+        e[5]=!fixed && kind!=2;e[6]=kind==0||kind==2||fixed;e[9]=kind!=0&&e[6];
+        if(kind==0)e[10]=EIO;
+        if(kind==3)e[10]=ENOSPC;
+        if(kind==2){e[11]=1;e[12]=!fixed;e[13]=fixed?42:0;}
+        if(kind==4)e[7]=fixed;
+        snprintf(path,sizeof(path),"study-%s.out",fixed?"fixed":"bug");numeric_json(path,keys,16,v);
+        for(unsigned i=0;i<16;i++)if(v[i]!=e[i])reject("runtime PM state/reference contract");
+        snprintf(path,sizeof(path),"study-%s.csv",fixed?"fixed":"bug");FILE *f=open_file(path,32768);
+        if(!fgets(line,sizeof(line),f)||strcmp(line,"index,ns,event,value,cpu,pid,in_interrupt,irqs_disabled\n"))reject("PM CSV header");
+        unsigned count=0,hits[13]={0},pos[13]={0};uint64_t sums[13]={0},previous=0;
+        while(fgets(line,sizeof(line),f)){
+            unsigned index,value,cpu,pid,irq,disabled,event;uint64_t ns;char name[32],extra;
+            if(sscanf(line,"%u,%" SCNu64 ",%31[^,],%u,%u,%u,%u,%u %c",&index,&ns,name,&value,&cpu,&pid,&irq,&disabled,&extra)!=8||index!=count||count>=128||!ns||ns<previous||irq||disabled)reject("PM CSV context/time");
+            for(event=0;event<13&&strcmp(name,events[event]);event++){}if(event==13||hits[event])reject("PM event identity");
+            hits[event]++;sums[event]+=value;pos[event]=count++;previous=ns;
+        }fclose(f);
+        unsigned put=kind==2||(fixed&&(kind==1||kind==3));
+        if(hits[0]!=1||pos[0]||sums[0]!=kind||hits[1]!=1||pos[1]!=count-1||sums[1]||hits[2]!=1||sums[2]!=kind||
+           hits[3]!=1||sums[3]!=(kind==0?EIO:0)||hits[4]!=e[9]||sums[4]||hits[5]!=(kind!=4)||sums[5]!=(kind==0?EIO:0)||
+           hits[6]!=put||sums[6]!=put||hits[7]!=(kind==4)||sums[7]!=(kind==4)||hits[8]!=(kind==4&&fixed)||sums[8]!=(kind==4&&fixed)||
+           hits[9]!=e[11]||sums[9]!=e[12]||hits[10]!=(kind==3)||sums[10]!=(kind==3?ENOSPC:0)||hits[11]!=1||sums[11]!=e[5]||hits[12]!=1||sums[12]||pos[11]>pos[12]||pos[12]>pos[1])reject("PM raw outcome contract");
+        if(kind==2&&((pos[4]>pos[9])!=fixed))reject("PM work and suspend order");
+        if(kind==3&&fixed&&pos[10]>pos[6])reject("PM failed initialization unwind order");
+        snprintf(path,sizeof(path),"study-%s.ftrace",fixed?"fixed":"bug");f=open_file(path,2*1024*1024);bool resume=false,suspend=false,work=false,tracer=false;
+        while(fgets(line,sizeof(line),f)){tracer|=strstr(line,"# tracer: function")!=NULL;if(!strstr(line," <-"))continue;resume|=strstr(line,"sb_pm_resume")!=NULL;suspend|=strstr(line,"sb_pm_suspend")!=NULL;work|=strstr(line,"sb_pm_business")!=NULL;}fclose(f);
+        if(!tracer||!resume||suspend!=!!e[9]||work!=!!e[11])reject("PM callback trace");
+        snprintf(path,sizeof(path),"study-%s-stats.txt",fixed?"fixed":"bug");f=open_file(path,16384);unsigned stats=0;
+        while(fgets(line,sizeof(line),f))if(strstr(line,"overrun:")||strstr(line,"dropped events:")){char *q=strchr(line,':')+1;skip_space(&q);if(number(&q))reject("PM trace loss");stats++;}
+        fclose(f);if(!stats)reject("PM trace stats");
+    }
+    uint64_t v[16];numeric_json("study-cleanup.out",keys,16,v);if(v[2]||v[3]||v[4]||v[14]||v[15]!=1)reject("PM cleanup reference or policy leak");
+}
+
+static void block_study_check(const char *scenario,int verify)
+{
+    static const char *const names[]={"io-space","io-fsync","io-direct","io-offset","io-retry"};
+    static const char *const keys[]={"kind","fixed","attempts","errors","error_no","requested","completed","committed","checksum","sector_size","maps","loops","mounts","backing_tmpfs","cleanup"};
+    unsigned kind;for(kind=0;kind<5&&strcmp(scenario,names[kind]);kind++){}if(kind==5)reject("unknown block study");
+    for(unsigned fixed=0;fixed<(verify?2U:1U);fixed++){
+        char path[96],line[1024];uint64_t v[15],e[15]={0};e[0]=kind;e[1]=fixed;e[13]=e[14]=1;
+        if(!kind){e[2]=17;e[3]=1;e[4]=ENOSPC;e[5]=2097152;e[6]=1048576;e[7]=!fixed;}
+        if(kind==1){e[2]=e[3]=1;e[4]=EIO;e[5]=e[6]=65536;e[7]=!fixed;}
+        if(kind==2){e[2]=1;e[3]=!fixed;e[4]=fixed?0:EINVAL;e[5]=4096;e[6]=fixed?4096:0;e[7]=fixed;e[8]=fixed?368640:0;}
+        if(kind==3){e[2]=1;e[5]=e[6]=512;e[7]=fixed;e[8]=fixed?46080:0;}
+        if(kind==4){e[2]=e[3]=fixed?1:16;e[4]=EIO;e[5]=4096;}
+        e[9]=kind?512:0;
+        snprintf(path,sizeof(path),"block-%s.out",fixed?"fixed":"bug");numeric_json(path,keys,15,v);for(unsigned i=0;i<15;i++)if(v[i]!=e[i])reject("block I/O outcome/resource contract");
+        snprintf(path,sizeof(path),"block-%s.csv",fixed?"fixed":"bug");FILE *f=open_file(path,32768);if(!fgets(line,sizeof(line),f)||strcmp(line,"index,ns,event,value\n"))reject("block CSV header");
+        unsigned count=0,operations=0,errs=0,commits=0,cleans=0,maps=0,linear=0,mounts=0,loops=0,fsyncs=0,offsets=0;uint64_t previous=0,bytes=0;
+        while(fgets(line,sizeof(line),f)){
+            unsigned index;uint64_t ns;int64_t value;char name[32],extra;
+            if(sscanf(line,"%u,%" SCNu64 ",%31[^,],%" SCNd64 " %c",&index,&ns,name,&value,&extra)!=4||index!=count||count++>=128||!ns||ns<previous)reject("block event time/index");
+            previous=ns;
+            if(!strcmp(name,"start")){if(index||value!=kind)reject("block start");}
+            else if(!strcmp(name,"write")||!strcmp(name,"pwrite")||!strcmp(name,"pread")){operations++;if(value>0)bytes+=value;else if(value!=-1)reject("invalid I/O return");}
+            else if(!strcmp(name,"errno")){errs++;if(value!=(int64_t)e[4])reject("raw errno");}
+            else if(!strcmp(name,"commit")){commits++;if(value!=(int64_t)e[7])reject("raw commit");}
+            else if(!strcmp(name,"cleanup")){cleans++;if(value||fgetc(f)!=EOF)reject("block cleanup must be last");}
+            else if(!strcmp(name,"map-error")){maps++;if(value!=1)reject("error table");}
+            else if(!strcmp(name,"map-linear")){linear++;if(value!=1)reject("restored table");}
+            else if(!strcmp(name,"loop")){loops++;if(value<0)reject("loop number");}
+            else if(!strcmp(name,"mount")){mounts++;if(value!=1)reject("private mount");}
+            else if(!strcmp(name,"fsync")){fsyncs++;if(value!=-1||maps!=1)reject("fsync EIO ordering");}
+            else if(!strcmp(name,"offset")){offsets++;if(value!=(fixed?4096:512))reject("sector offset");}
+            else reject("unknown block event");
+        }fclose(f);
+        if(operations!=e[2]||errs!=e[3]||bytes!=e[6]||commits!=1||cleans!=1||loops!=(kind!=0)||mounts!=(kind<3)||
+           maps!=(kind==1||kind==4)||linear!=maps||fsyncs!=(kind==1)||offsets!=(kind==3))reject("block raw syscall and summary differ");
+        if((kind==2&&fixed)||kind==3){snprintf(path,sizeof(path),"block-%s.csv.bin",fixed?"fixed":"bug");f=open_file(path,4096);unsigned size=0;uint64_t sum=0;int byte;while((byte=fgetc(f))!=EOF){size++;sum+=byte;if(byte!=(fixed?0x5a:0))reject("readback byte");}fclose(f);if(size!=(kind==2?4096:512)||sum!=e[8])reject("raw readback checksum");}
+    }
+}
+
 static void student_evidence(void)
 {
     static const char *const keys[] = {"tests", "passed", "failed", "candidate_size"};
@@ -1174,6 +1255,12 @@ int main(int argc, char **argv)
         if (!strcmp(scenario, "deadline")) deadline_check(mode, argc - 5, argv + 5);
         else if (!strcmp(scenario, "backlog")) backlog_check(mode, argc - 5, argv + 5);
         else tcp_check(mode, argc - 5, argv + 5);
+    } else if (!strncmp(scenario, "pm-", 3)) {
+        if (argc != 5 || code) reject("PM exit/parameters");
+        power_study_check(scenario, verify);
+    } else if (!strncmp(scenario, "io-", 3)) {
+        if (argc != 5 || code) reject("I/O exit/parameters");
+        block_study_check(scenario, verify);
     } else if (!strncmp(scenario, "irq-", 4)) {
         if (argc != 5 || code) reject("IRQ exit/parameters");
         irq_study_check(scenario, verify);

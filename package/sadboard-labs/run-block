@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+operation=$1; scenario=$2; run=$3
+tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
+case "$scenario" in
+    io-space) kind=0 ;; io-fsync) kind=1 ;; io-direct) kind=2 ;; io-offset) kind=3 ;; io-retry) kind=4 ;; *) exit 64 ;;
+esac
+# Payload mounts are private. AUTOCLEAR and deferred DM deletion also cover SIGKILL.
+# A killed namespace may leave its empty mountpoint directory in /tmp.
+empty_directories() {
+    for record in "$run"/block-*.csv.resources; do
+        [ -f "$record" ] || continue
+        path=$(cat "$record")
+        case "$path" in /tmp/sadboard-block-??????) [ -L "$path" ] || rmdir "$path" 2>/dev/null || true ;; esac
+    done
+}
+if [ "$operation" = reset ]; then empty_directories; exit 0; fi
+trap empty_directories EXIT
+trap 'exit 130' HUP INT TERM
+for variant in bug fixed; do
+    [ "$variant:$operation" != fixed:run ] || break
+    "$tools/block-study" "$kind" "$variant" "$run/block-$variant.csv" "$tools/fixtures/storage.ext4" > "$run/block-$variant.out"
+    dmesg > "$run/block-$variant-kernel.log"
+done

@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -Wall -Wextra
 DEBUG_FLAGS = -std=c11 -g3 -O0 -fno-omit-frame-pointer -fno-inline -fdebug-prefix-map=$(CURDIR)=/usr/src/sadboard
 PROGRAMS = crash-bug crash-fixed cpu-bug cpu-fixed memory-bug memory-fixed lock-bug lock-fixed fd-bug fd-fixed check-result
-PROGRAMS += case-suite watchdog-probe student-check
+PROGRAMS += case-suite watchdog-probe student-check block-study
 PROGRAMS += deadline-bug deadline-fixed backlog-bug backlog-fixed tcp-bug tcp-fixed
 BOOT_PROGRAMS = boot-init libsadboard-init.so
 INSTALL ?= install
@@ -46,6 +46,9 @@ deadline-fixed backlog-fixed tcp-fixed: %-fixed: src/%.c src/lab.h
 watchdog-probe: src/watchdog-probe.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) $< $(LDFLAGS) -o $@
 
+block-study: src/block-study.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) $< $(LDFLAGS) -o $@
+
 student-check: src/student-check.c src/lab.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUG_FLAGS) $< $(LDFLAGS) -o $@
 
@@ -61,7 +64,7 @@ install: all
 	$(INSTALL) -D -m 0755 run-memory $(DESTDIR)/usr/libexec/sadboard/run-memory
 	$(INSTALL) -D -m 0755 execute $(DESTDIR)/usr/libexec/sadboard/execute
 	$(INSTALL) -m 0644 results.sh $(DESTDIR)/usr/libexec/sadboard/results.sh
-	for script in run-cma run-kernel run-driver run-async run-study check-kernel run-network-suite cleanup-cgroups run-suite run-network run-tcp run-panic check-panic; do $(INSTALL) -m 0755 $$script $(DESTDIR)/usr/libexec/sadboard/; done
+	for script in run-cma run-kernel run-driver run-async run-study run-block check-kernel run-network-suite cleanup-cgroups run-suite run-network run-tcp run-panic check-panic; do $(INSTALL) -m 0755 $$script $(DESTDIR)/usr/libexec/sadboard/; done
 	$(INSTALL) -d $(DESTDIR)/usr/src/sadboard/kernel
 	$(INSTALL) -m 0644 kernel/*.c kernel/*.h kernel/Makefile $(DESTDIR)/usr/src/sadboard/kernel/
 	$(INSTALL) -m 0644 src/*.c src/*.h src/*.def src/*.S $(DESTDIR)/usr/src/sadboard/src/

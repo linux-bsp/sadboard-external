@@ -63,8 +63,13 @@ case "${1:-}" in
                 exit "$result" ;;
             network) new_run network; exec "$tools/run-network" bug "$run" ;;
             kernel-oops|kernel-lockup|watchdog-probe) new_run "$2"; exec "$tools/watchdog-probe" --lock sh "$tools/run-kernel" "$2" "$run" ;;
+            io-space|io-fsync|io-direct|io-offset|io-retry)
+                new_run "$2-$1"
+                "$tools/watchdog-probe" --lock sh "$tools/run-block" "$1" "$2" "$run"
+                cat "$run/block-bug.out"
+                if [ "$1" = verify ]; then cat "$run/block-fixed.out"; "$tools/check-result" "$2" verify "$run" 0; fi ;;
             memory-cma) new_run memory-cma; exec "$tools/watchdog-probe" --lock sh "$tools/run-cma" run "$run" ;;
-            irq-ownership|irq-wake|irq-shared|irq-defer|irq-drain|sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
+            pm-geterror|pm-autosuspend|pm-workref|pm-unwind|pm-policy|irq-ownership|irq-wake|irq-shared|irq-defer|irq-drain|sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
                 new_run "$2-run"
                 "$tools/watchdog-probe" --lock sh "$tools/run-study" run "$2" "$run"
                 cat "$run/study-bug.out" ;;
@@ -90,8 +95,13 @@ case "${1:-}" in
     verify)
         [ "$#" -ge 2 ] || usage
         case "$2" in
+            io-space|io-fsync|io-direct|io-offset|io-retry)
+                new_run "$2-$1"
+                "$tools/watchdog-probe" --lock sh "$tools/run-block" "$1" "$2" "$run"
+                cat "$run/block-bug.out"
+                if [ "$1" = verify ]; then cat "$run/block-fixed.out"; "$tools/check-result" "$2" verify "$run" 0; fi ;;
             memory-cma) new_run memory-cma; exec "$tools/watchdog-probe" --lock sh "$tools/run-cma" verify "$run" ;;
-            irq-ownership|irq-wake|irq-shared|irq-defer|irq-drain|sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
+            pm-geterror|pm-autosuspend|pm-workref|pm-unwind|pm-policy|irq-ownership|irq-wake|irq-shared|irq-defer|irq-drain|sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
                 new_run "$2-verify"
                 "$tools/watchdog-probe" --lock sh "$tools/run-study" verify "$2" "$run"
                 cat "$run/study-bug.out" "$run/study-fixed.out"

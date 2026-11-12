@@ -40,6 +40,8 @@ case "${1:-}" in
             driver-match:2|driver-property:2|driver-defer:2|driver-unwind:2|driver-remove:2) ;;
             async-coalesce:2|async-ordered:2|async-predicate:2|async-reference:2|async-stop:2) ;;
             sync-transaction:2|sync-trylock:2|sync-assert:2|rcu-readside:2|rcu-srcu:2|rcu-callback:2) ;;
+            pm-geterror:2|pm-autosuspend:2|pm-workref:2|pm-unwind:2|pm-policy:2) ;;
+            io-space:2|io-fsync:2|io-direct:2|io-offset:2|io-retry:2) ;;
             irq-ownership:2|irq-wake:2|irq-shared:2|irq-defer:2|irq-drain:2) ;;
             *)
                 [ "$#" = 2 ] && [ -x "$tools/case-suite" ] && "$tools/case-suite" --has "$scenario" || usage ;;
@@ -211,7 +213,9 @@ EOF
                     "$tools/watchdog-probe" --lock sh -c 'echo release > /sys/kernel/debug/sadboard-faults/control'
                 fi
                 case "$(read_field case "$run/run.info")" in
-                    irq-ownership|irq-wake|irq-shared|irq-defer|irq-drain|sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
+                    io-space|io-fsync|io-direct|io-offset|io-retry)
+                        "$tools/watchdog-probe" --lock sh "$tools/run-block" reset "$(read_field case "$run/run.info")" "$run" ;;
+                    pm-geterror|pm-autosuspend|pm-workref|pm-unwind|pm-policy|irq-ownership|irq-wake|irq-shared|irq-defer|irq-drain|sync-transaction|sync-trylock|sync-assert|rcu-readside|rcu-srcu|rcu-callback)
                         "$tools/watchdog-probe" --lock sh "$tools/run-study" reset "$(read_field case "$run/run.info")" "$run" ;;
                     async-coalesce|async-ordered|async-predicate|async-reference|async-stop)
                         "$tools/watchdog-probe" --lock sh "$tools/run-async" reset "$(read_field case "$run/run.info")" "$run" ;;

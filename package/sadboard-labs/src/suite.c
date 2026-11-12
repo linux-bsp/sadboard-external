@@ -62,6 +62,16 @@ static const struct suite_case external_cases[] = {
     {"rcu-readside", "K-RCU01", "Missing read-side section detected by live lock state", NULL},
     {"rcu-srcu", "K-RCU02", "Early logical retirement ignores a sleeping SRCU reader", NULL},
     {"rcu-callback", "K-RCU03", "Configuration retired before a classic RCU reader exits", NULL},
+    {"pm-geterror", "K-PM01", "Private device runtime PM: geterror", NULL},
+    {"pm-autosuspend", "K-PM02", "Private device runtime PM: autosuspend", NULL},
+    {"pm-workref", "K-PM03", "Private device runtime PM: workref", NULL},
+    {"pm-unwind", "K-PM04", "Private device runtime PM: unwind", NULL},
+    {"pm-policy", "K-PM05", "Private device runtime PM: policy", NULL},
+    {"io-space", "K-IO02", "Owned RAM storage backend: ENOSPC", NULL},
+    {"io-fsync", "K-IO03", "Owned RAM storage backend: fsync EIO", NULL},
+    {"io-direct", "K-IO04", "Owned RAM storage backend: direct I/O alignment", NULL},
+    {"io-offset", "K-IO05", "Owned RAM storage backend: sector offset units", NULL},
+    {"io-retry", "K-IO06", "Owned RAM storage backend: bounded permanent EIO retry", NULL},
     {"irq-ownership", "K-IRQ01", "Owned software IRQ is incorrectly rejected as IRQ_NONE", NULL},
     {"irq-wake", "K-IRQ02", "IRQ_HANDLED does not request the registered IRQ thread", NULL},
     {"irq-shared", "K-IRQ03", "Shared handler accepts an event owned by another cookie", NULL},
@@ -73,7 +83,7 @@ static unsigned catalog_group(const char *id)
 {
     static const char *const groups[] = {
         "B-CR", "B-FD", "B-MM", "B-CPU", "B-SYNC", "B-NET", "B-BOOT", "A-P", "A-M", "A-N",
-        "L-ASM", "K-MM", "K-VFS", "K-IPC", "K-TIME", "K-PROC", "K-NET", "K-IO", "K-SCHED", "K-DRV", "K-ASY", "K-LOCK", "K-RCU", "K-IRQ"
+        "L-ASM", "K-MM", "K-VFS", "K-IPC", "K-TIME", "K-PROC", "K-NET", "K-IO", "K-SCHED", "K-DRV", "K-ASY", "K-LOCK", "K-RCU", "K-IRQ", "K-PM"
     };
     unsigned count = sizeof(groups) / sizeof(groups[0]);
     for (unsigned i = 0; i < count; i++)
