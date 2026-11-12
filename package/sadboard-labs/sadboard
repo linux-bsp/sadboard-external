@@ -4,8 +4,8 @@ set -eu
 umask 077
 tools=${SADBOARD_LIBEXEC:-/usr/libexec/sadboard}
 usage() {
-    echo 'Usage: sadboard list [ID_PREFIX] | results | {run|verify} CASE [NUMERIC_ARGS] | {status|check|reset|share} RUN_DIRECTORY' >&2
-    echo 'List prefixes: B-CR B-FD B-MM B-CPU B-SYNC B-NET B-BOOT A-P A-M A-N L-ASM K-' >&2
+    echo 'Usage: sadboard list [ID_PREFIX] | results | {run|verify} CASE [NUMERIC_ARGS] | evaluate crash /ABSOLUTE/PROGRAM | {status|check|reset|share} RUN_DIRECTORY' >&2
+    echo 'List prefixes: B-CR B-FD B-MM B-CPU B-SYNC B-NET B-BOOT A-P A-M A-N L-ASM K- K-DRV' >&2
     echo 'CASE: crash [KEY], oom, cpu [ITEMS QUERIES SEED], lock [ITERATIONS DELAY_US], fd [REQUESTS DELAY_MS], network, panic (run only)' >&2
     echo 'Advanced: deadline [CYCLES PERIOD_US WORK_US], backlog [MESSAGES PAYLOAD_KIB], tcp [RECORDS]' >&2
     exit 64
@@ -24,17 +24,24 @@ case "${1:-}" in
         sadboard_results_prepare "$root" || error 'Cannot prepare result directory'
         cd "$root" && pwd -P
         ;;
-    run|verify)
+    run|verify|evaluate)
         [ "$#" -ge 2 ] || usage
         operation=$1; scenario=$2
+        if [ "$operation" = evaluate ]; then
+            [ "$#" = 3 ] && [ "$scenario" = crash ] || usage
+            case "$3" in /*) ;; *) usage ;; esac
+            [ -f "$3" ] && [ -x "$3" ] && [ ! -L "$3" ] || error 'Use a regular executable candidate'
+        else
         case "$scenario:$#" in
             crash:2|oom:2|cpu:2|lock:2|fd:2|network:2|deadline:2|backlog:2|tcp:2) ;;
             panic:2|kernel-oops:2|kernel-lockup:2|watchdog-probe:2) [ "$operation" = run ] || usage ;;
             crash:3) [ "$operation" = run ] || usage ;;
             cpu:5|lock:4|fd:4|deadline:5|backlog:4|tcp:3) ;;
+            driver-match:2|driver-property:2|driver-defer:2|driver-unwind:2|driver-remove:2) ;;
             *)
                 [ "$#" = 2 ] && [ -x "$tools/case-suite" ] && "$tools/case-suite" --has "$scenario" || usage ;;
         esac
+        fi
         shift 2
         if [ "$#" = 0 ]; then
             case "$scenario:$operation" in
@@ -47,9 +54,11 @@ case "${1:-}" in
                 tcp:*) set -- 8192 ;;
             esac
         fi
+        if [ "$operation" != evaluate ]; then
         for value in "$@"; do
             case "$value" in ''|*[!0-9]*|????????????*) usage ;; esac
         done
+        fi
         # Panic exercises an unsealed startup of a previously confirmed image.
         # The FWOTA2 checks below still reject trial/pending firmware.
         case "$scenario" in panic|kernel-oops|kernel-lockup|watchdog-probe) ;; *)
@@ -110,7 +119,11 @@ EOF
             echo "firmware_id=$firmware"
             echo "kernel=$(uname -r)"
             echo "command=$tools/execute $operation $scenario"
-            for value in "$@"; do echo "argument=$value"; done
+            if [ "$operation" = evaluate ]; then
+                echo "candidate_source=$1"
+            else
+                for value in "$@"; do echo "argument=$value"; done
+            fi
             [ "$scenario" != oom ] || echo 'memory_budget=33554432; chunks=64; delay_ms=50'
         } > "$run/run.info"
         printf '%s\n' "$status" > "$run/firmware-status.txt"
@@ -133,6 +146,7 @@ EOF
             --property="StandardOutput=append:$run/stdout.log" \
             --property="StandardError=append:$run/stderr.log" \
             --setenv="SADBOARD_RUN=$run" --setenv="SADBOARD_LIBEXEC=$tools" \
+            --setenv="SADBOARD_DRIVER_MODULE=${SADBOARD_DRIVER_MODULE:-}" \
             sh "$tools/execute" "$operation" "$scenario" "$@" \
             > "$run/supervisor.log" 2>&1 || result=$?
         trap - INT TERM HUP
@@ -191,6 +205,10 @@ EOF
                 if [ "$(read_field case "$run/run.info")" = memory-cma ] && [ -w /sys/kernel/debug/sadboard-faults/control ]; then
                     "$tools/watchdog-probe" --lock sh -c 'echo release > /sys/kernel/debug/sadboard-faults/control'
                 fi
+                case "$(read_field case "$run/run.info")" in
+                    driver-match|driver-property|driver-defer|driver-unwind|driver-remove)
+                        "$tools/watchdog-probe" --lock sh "$tools/run-driver" reset "$(read_field case "$run/run.info")" "$run" ;;
+                esac
                 if [ "$(read_field case "$run/run.info")" = tcp ]; then
                     ip netns del "sb-tcp-${run##*/}" 2>/dev/null || true
                 fi
@@ -226,6 +244,11 @@ EOF
                     set -- "$@" "$value" ;;
             esac
         done < "$run/run.info"
+        if [ "$op" = evaluate ]; then
+            expected_hash=$(cat "$run/candidate.sha256")
+            actual_hash=$(cd "$run" && sha256sum candidate.elf)
+            [ "$expected_hash" = "$actual_hash" ] || error 'Candidate snapshot hash differs'
+        fi
         exec "$tools/check-result" "$scenario" "$op" "$run" "$code" "$@"
         ;;
     *) usage ;;

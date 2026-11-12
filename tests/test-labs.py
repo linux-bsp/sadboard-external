@@ -120,6 +120,30 @@ class Labs(unittest.TestCase):
                 with self.subTest(binary=binary, args=args):
                     self.assertEqual(self.execute(binary, *args).returncode, 64)
 
+    def test_student_repair_uses_candidate_and_rejects_bad_or_tampered_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            good = self.execute('student-check', str(self.build / 'crash-fixed'), str(run))
+            self.assertEqual(good.returncode, 0, good.stderr)
+            self.assertEqual(self.execute('check-result', 'crash', 'evaluate', str(run), '0').returncode, 0)
+            self.assertEqual((run / 'candidate.elf').read_bytes(), (self.build / 'crash-fixed').read_bytes())
+            original = (run / 'student-results.csv').read_text()
+            (run / 'student-results.csv').write_text(original.replace('1,missing,2,2,0,1', '1,missing,2,0,0,1'))
+            self.assertEqual(self.execute('check-result', 'crash', 'evaluate', str(run), '0').returncode, 1)
+            (run / 'student-results.csv').write_text(original)
+            (run / 'student-00.stdout').write_text('record=1 value=0\n')
+            self.assertEqual(self.execute('check-result', 'crash', 'evaluate', str(run), '0').returncode, 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = self.execute('student-check', str(self.build / 'crash-bug'), tmp)
+            self.assertEqual(bad.returncode, 1, bad.stderr)
+            summary = json.loads((Path(tmp) / 'student-summary.out').read_text())
+            self.assertGreater(summary['failed'], 0)
+            self.assertEqual(self.execute('check-result', 'crash', 'evaluate', tmp, '1').returncode, 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            invalid = Path(tmp) / 'invalid'
+            invalid.write_text('#!/bin/sh\nexit 0\n')
+            self.assertEqual(self.execute('student-check', str(invalid), tmp).returncode, 75)
+
     def test_launcher_is_explicit_and_reference_check_is_repeatable(self):
         env = dict(os.environ, SADBOARD_LIBEXEC=str(self.build), SADBOARD_RESULTS=str(self.build / 'results'))
         listing = subprocess.run(['sh', str(self.build / 'sadboard'), 'list'], env=env,
@@ -131,6 +155,7 @@ class Labs(unittest.TestCase):
         groups += [('A-' + group, 8) for group in ('P', 'M', 'N')]
         groups += [('L-ASM', 8)]
         groups += [('K-' + group, 1) for group in ('MM', 'VFS', 'IPC', 'TIME', 'PROC', 'NET', 'IO', 'SCHED')]
+        groups += [('K-DRV', 5)]
         expected = [f'{group}{number:02d}' for group, count in groups for number in range(1, count + 1)]
         self.assertEqual([row[0] for row in rows], expected)
         self.assertEqual(auxiliary.split(maxsplit=1)[0], 'watchdog-probe')
@@ -138,7 +163,7 @@ class Labs(unittest.TestCase):
                        'lock': 'B-SYNC01', 'network': 'B-NET01', 'panic': 'B-BOOT01',
                        'deadline': 'A-P01', 'backlog': 'A-M01', 'tcp': 'A-N01'}
         indexed = {row[1]: row[0] for row in rows}
-        self.assertEqual(len(indexed), 75)
+        self.assertEqual(len(indexed), 80)
         for command, case_id in first_cases.items():
             self.assertEqual(indexed[command], case_id)
         for prefix in [group for group, _ in groups] + ['B-', 'A-', 'K-', 'L-', 'B-CR01', 'B-CR0']:

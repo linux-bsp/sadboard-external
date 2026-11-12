@@ -46,13 +46,18 @@ static const struct suite_case external_cases[] = {
     {"deadline", "A-P01", "Periodic telemetry drifts despite low CPU; release-time CSV and absolute timers", NULL},
     {"backlog", "A-M01", "Slow downstream consumer causes memory growth; bounded queue and backpressure", NULL},
     {"tcp", "A-N01", "Many small telemetry writes consume CPU; framed TCP batching in an owned namespace", NULL},
+    {"driver-match", "K-DRV01", "Platform name mismatch prevents driver binding", NULL},
+    {"driver-property", "K-DRV02", "Missing required firmware property rejects probe", NULL},
+    {"driver-defer", "K-DRV03", "Deferred probe waits for a controlled supplier condition", NULL},
+    {"driver-unwind", "K-DRV04", "Probe failure retains a bounded resource without managed cleanup", NULL},
+    {"driver-remove", "K-DRV05", "Remove without work cancellation permits a late callback", NULL},
 };
 
 static unsigned catalog_group(const char *id)
 {
     static const char *const groups[] = {
         "B-CR", "B-FD", "B-MM", "B-CPU", "B-SYNC", "B-NET", "B-BOOT", "A-P", "A-M", "A-N",
-        "L-ASM", "K-MM", "K-VFS", "K-IPC", "K-TIME", "K-PROC", "K-NET", "K-IO", "K-SCHED"
+        "L-ASM", "K-MM", "K-VFS", "K-IPC", "K-TIME", "K-PROC", "K-NET", "K-IO", "K-SCHED", "K-DRV"
     };
     unsigned count = sizeof(groups) / sizeof(groups[0]);
     for (unsigned i = 0; i < count; i++)

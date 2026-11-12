@@ -23,7 +23,7 @@ for file in "$TARGET_DIR/usr/libexec/sadboard"/*; do
     [ "$magic" != 7f454c46 ] || cp "$file" "$out/labs/"
 done
 cp -a "$TARGET_DIR/usr/src/sadboard" "$out/source"
-cp "$BUILD_DIR/sadboard-labs-1/kernel/sadboard-faults.ko" "$out/kernel/"
+cp "$BUILD_DIR/sadboard-labs-1/kernel/"*.ko "$out/kernel/"
 find "$out" -type f ! -name build-info.json -print | LC_ALL=C sort | while IFS= read -r file; do
     "$jq" -cn --arg name "${file#"$out"/}" --arg hash "$(sha256sum "$file" | cut -d ' ' -f 1)" '{($name):$hash}'
 done | "$jq" -s 'add' > "$work/hashes.json"

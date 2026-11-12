@@ -25,16 +25,16 @@ labs=()
 for name in crash cpu memory lock fd deadline backlog tcp; do
     labs+=("labs/$name-bug" "labs/$name-fixed")
 done
-labs+=(labs/check-result labs/case-suite)
+labs+=(labs/check-result labs/case-suite labs/student-check)
 required=(vmlinux System.map kernel.config buildroot.config busybox.config)
 for name in crash.c cpu.c memory.c lock.c fd.c deadline.c backlog.c tcp.c lab.h suite.c suite.h \
     basic-cases.def suite-fault.c suite-fd.c suite-memory.c suite-cpu.c suite-sync.c suite-network.c \
     advanced-cases.def suite-advanced.h suite-performance.c suite-advanced-memory.c suite-advanced-network.c \
-    suite-cgroup.c suite-peer.c suite-peer.h; do required+=("source/src/$name"); done
+    suite-cgroup.c suite-peer.c suite-peer.h student-check.c; do required+=("source/src/$name"); done
 for name in "${required[@]}" "${labs[@]}"; do
     "$jq" -e --arg name "$name" '.sha256|has($name)' "$root/build-info.json" >/dev/null
 done
-for name in vmlinux kernel/sadboard-faults.ko labs/watchdog-probe "${labs[@]}"; do
+for name in vmlinux kernel/sadboard-faults.ko kernel/sadboard-driver.ko labs/watchdog-probe "${labs[@]}"; do
     verify_elf "$root/$name"
     sections=$(readelf --sections --wide "$root/$name")
     [[ $sections == *'.debug_info'* ]] || { echo "Debug symbols stripped: $name" >&2; exit 1; }

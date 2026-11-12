@@ -783,12 +783,124 @@ static void suite_check(const char *name, const char *mode, int index)
     }
 }
 
+static void driver_check(const char *scenario, int verify)
+{
+    static const char *const names[] = {
+        "driver-match", "driver-property", "driver-defer", "driver-unwind", "driver-remove"
+    };
+    static const char *const keys[] = {
+        "kind", "fixed", "probes", "errno", "bound", "ready", "allocated", "released",
+        "held", "removed", "completed", "late", "active", "sample_rate"
+    };
+    unsigned kind;
+    for (kind = 0; kind < 5 && strcmp(names[kind], scenario); kind++) {}
+    if (kind == 5) reject("unknown driver exercise");
+    for (unsigned fixed = 0; fixed < (verify ? 2U : 1U); fixed++) {
+        uint64_t v[14];
+        numeric_json(fixed ? "driver-fixed.out" : "driver-bug.out", keys, 14, v);
+        if (v[0] != kind || v[1] != fixed || v[6] != v[7] + v[8])
+            reject("driver identity/resource accounting");
+        if (kind == 0 && (v[2] != fixed || v[3] || v[4] != fixed || !v[12]))
+            reject("driver match contract");
+        if (kind == 1 && (v[2] != 1 || v[3] != (fixed ? 0U : EINVAL) ||
+                         v[4] != fixed || v[13] != (fixed ? 100U : 0U)))
+            reject("driver property contract");
+        if (kind == 2) {
+            if (!v[2] || v[3] != (fixed ? 0U : 517U) || v[4] != fixed || v[5] != fixed)
+                reject("driver deferred probe contract");
+            if (fixed) {
+                uint64_t initial[14];
+                numeric_json("driver-fixed-initial.out", keys, 14, initial);
+                if (initial[0] != kind || initial[1] != 1 || !initial[2] ||
+                    initial[3] != 517 || initial[4] || initial[5] || v[2] <= initial[2])
+                    reject("deferred probe transition missing");
+            }
+        }
+        if (kind == 3 && (v[2] != 1 || v[3] != EIO || v[4] || v[6] != 1 ||
+                         v[7] != fixed || v[8] != (fixed ? 0U : 1U)))
+            reject("probe unwind contract");
+        if (kind == 4 && (v[2] != 1 || v[3] || v[4] || !v[9] || v[12] ||
+                         v[10] != (fixed ? 0U : 1U) || v[11] != (fixed ? 0U : 1U)))
+            reject("remove/work cancellation contract");
+        char text[256];
+        text_file(fixed ? "driver-fixed-binding.txt" : "driver-bug-binding.txt", text, sizeof(text));
+        if (v[4] ? !strstr(text, "/drivers/sadboard-study") : strcmp(text, "unbound\n"))
+            reject("driver sysfs binding contradicts status");
+        if (kind == 0)
+            exact(fixed ? "driver-fixed-modalias.txt" : "driver-bug-modalias.txt",
+                  fixed ? "platform:sadboard-study\n" : "platform:sadboard-study-mismatch\n");
+        if (kind == 2) {
+            char deferred[4096];
+            text_file(fixed ? "driver-fixed-deferred.txt" : "driver-bug-deferred.txt",
+                      deferred, sizeof(deferred));
+            if ((strstr(deferred, "sadboard-study") != NULL) == fixed)
+                reject("deferred probe list contradicts the transition");
+        }
+    }
+    uint64_t cleanup[14];
+    numeric_json("driver-cleanup.out", keys, 14, cleanup);
+    if (cleanup[12] || cleanup[8] || cleanup[6] != cleanup[7])
+        reject("driver laboratory resources not reclaimed");
+}
+
+static void student_evidence(void)
+{
+    static const char *const keys[] = {"tests", "passed", "failed", "candidate_size"};
+    static const char *const labels[] = {
+        "valid", "missing", "zero", "maximum", "text", "negative", "empty", "overflow",
+        "no-argument", "extra-argument"
+    };
+    uint64_t v[4];
+    numeric_json("student-summary.out", keys, 4, v);
+    if (v[0] != 10 || v[1] != 10 || v[2] || !v[3] || v[3] > 16 * 1024 * 1024)
+        reject("candidate test summary");
+    FILE *binary = open_file("candidate.elf", 16 * 1024 * 1024);
+    struct stat metadata;
+    Elf64_Ehdr header;
+    if (fstat(fileno(binary), &metadata) || (uint64_t)metadata.st_size != v[3] ||
+        fread(&header, 1, sizeof(header), binary) != sizeof(header) ||
+        memcmp(header.e_ident, ELFMAG, SELFMAG) || header.e_ident[EI_CLASS] != ELFCLASS64 ||
+        header.e_ident[EI_DATA] != ELFDATA2LSB)
+        reject("candidate snapshot ELF/size");
+    fclose(binary);
+    FILE *table = open_file("student-results.csv", 4096);
+    char line[256];
+    if (!fgets(line, sizeof(line), table) || strcmp(line, "index,input,expected,observed,timeout,passed\n"))
+        reject("candidate input table header");
+    for (unsigned i = 0; i < 10; i++) {
+        unsigned index, expected, observed, timeout, passed;
+        char label[64], extra;
+        if (!fgets(line, sizeof(line), table) ||
+            sscanf(line, "%u,%63[^,],%u,%u,%u,%u %c", &index, label, &expected, &observed,
+                   &timeout, &passed, &extra) != 6 || index != i || strcmp(label, labels[i]) ||
+            expected != (i ? (i <= 3 ? 2U : 64U) : 0U) || observed != expected || timeout || passed != 1)
+            reject("candidate raw input/result differs from passing summary");
+        char file[64];
+        snprintf(file, sizeof(file), "student-%02u.stdout", i);
+        exact(file, i ? "" : "record=1 value=64\n");
+        snprintf(file, sizeof(file), "student-%02u.stderr", i);
+        FILE *errors = open_file(file, 16384);
+        if (i && fgetc(errors) == EOF)
+            reject("candidate omitted an error diagnostic");
+        fclose(errors);
+    }
+    if (fgetc(table) != EOF) reject("unexpected candidate inputs");
+    fclose(table);
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 5) return 64;
     const char *scenario = argv[1], *mode = argv[2];
     directory = argv[3];
     unsigned code = lab_number(argv[4], 255, 1);
+    if (!strcmp(mode, "evaluate")) {
+        if (strcmp(scenario, "crash") || argc != 5 || code)
+            reject("candidate evaluation failed or parameters differ");
+        student_evidence();
+        puts("[sadboard] [INFO] Learner repair passed the ten-input B-CR01 contract");
+        return 0;
+    }
     if (strcmp(mode, "run") && strcmp(mode, "verify")) return 64;
     int verify = !strcmp(mode, "verify");
     if (!strcmp(scenario, "cpu") || !strcmp(scenario, "lock")) {
@@ -821,6 +933,9 @@ int main(int argc, char **argv)
         if (!strcmp(scenario, "deadline")) deadline_check(mode, argc - 5, argv + 5);
         else if (!strcmp(scenario, "backlog")) backlog_check(mode, argc - 5, argv + 5);
         else tcp_check(mode, argc - 5, argv + 5);
+    } else if (!strncmp(scenario, "driver-", 7)) {
+        if (argc != 5 || code) reject("driver exit/parameters");
+        driver_check(scenario, verify);
     } else if(suite_index(scenario)>=0) {
         if(argc!=5||code)reject("suite exit/parameters");
         suite_check(scenario,mode,suite_index(scenario));

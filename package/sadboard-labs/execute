@@ -64,6 +64,10 @@ case "${1:-}" in
             network) new_run network; exec "$tools/run-network" bug "$run" ;;
             kernel-oops|kernel-lockup|watchdog-probe) new_run "$2"; exec "$tools/watchdog-probe" --lock sh "$tools/run-kernel" "$2" "$run" ;;
             memory-cma) new_run memory-cma; exec "$tools/watchdog-probe" --lock sh "$tools/run-cma" run "$run" ;;
+            driver-match|driver-property|driver-defer|driver-unwind|driver-remove)
+                new_run "$2-run"
+                "$tools/watchdog-probe" --lock sh "$tools/run-driver" run "$2" "$run"
+                cat "$run/driver-bug.out" ;;
             panic) new_run panic; exec "$tools/run-panic" "$run" ;;
             deadline|backlog|tcp)
                 scenario=$2; shift 2
@@ -79,6 +83,11 @@ case "${1:-}" in
         [ "$#" -ge 2 ] || usage
         case "$2" in
             memory-cma) new_run memory-cma; exec "$tools/watchdog-probe" --lock sh "$tools/run-cma" verify "$run" ;;
+            driver-match|driver-property|driver-defer|driver-unwind|driver-remove)
+                new_run "$2-verify"
+                "$tools/watchdog-probe" --lock sh "$tools/run-driver" verify "$2" "$run"
+                cat "$run/driver-bug.out" "$run/driver-fixed.out"
+                "$tools/check-result" "$2" verify "$run" 0 ;;
             crash)
                 new_run crash-verify
                 "$tools/crash-fixed" 1 > "$run/crash-valid.out"
@@ -139,6 +148,16 @@ case "${1:-}" in
                 cat "$run/$2-bug.out" "$run/$2-fixed.out"
                 "$tools/check-result" "$2" verify "$run" 0 ;;
         esac
+        ;;
+    evaluate)
+        [ "$#" = 3 ] && [ "$2" = crash ] || usage
+        new_run crash-evaluate
+        result=0
+        "$tools/student-check" "$3" "$run" || result=$?
+        if [ -f "$run/candidate.elf" ]; then
+            (cd "$run" && sha256sum candidate.elf) > "$run/candidate.sha256"
+        fi
+        exit "$result"
         ;;
     *) usage ;;
 esac

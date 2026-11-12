@@ -1,0 +1,71 @@
+#!/bin/sh
+# Called with the inherited laboratory flock, in a managed transient service.
+set -eu
+operation=$1; scenario=$2; run=$3
+interface=/sys/kernel/debug/sadboard-driver
+owner=/run/sadboard-driver-owner
+case "$scenario" in
+    driver-match) kind=match ;;
+    driver-property) kind=property ;;
+    driver-defer) kind=defer ;;
+    driver-unwind) kind=unwind ;;
+    driver-remove) kind=remove ;;
+    *) exit 64 ;;
+esac
+if [ "$operation" = reset ]; then
+    [ -f "$owner" ] && [ "$(cat "$owner")" = "$run" ] || exit 0
+    if [ -d /sys/module/sadboard_driver ]; then
+        printf 'clear\n' > "$interface/control"
+        cat "$interface/status" > "$run/driver-cleanup.out"
+        rmmod sadboard_driver
+    fi
+    rm "$owner"
+    exit 0
+fi
+[ ! -d /sys/module/sadboard_driver ] && [ ! -e "$owner" ] || {
+    echo '[sadboard] [ERROR] Driver laboratory already owned; reset that run or unload the idle manual module' >&2
+    exit 75
+}
+if [ -n "${SADBOARD_DRIVER_MODULE:-}" ]; then
+    [ -f "$SADBOARD_DRIVER_MODULE" ] || exit 75
+    insmod "$SADBOARD_DRIVER_MODULE"
+else
+    modprobe sadboard-driver
+fi
+printf '%s\n' "$run" > "$owner"
+cleanup() {
+    printf 'clear\n' > "$interface/control"
+    cat "$interface/status" > "$run/driver-cleanup.out"
+    rmmod sadboard_driver
+    rm "$owner"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+cat /proc/uptime > "$run/driver-start-uptime.txt"
+for variant in bug fixed; do
+    [ "$variant:$operation" != fixed:run ] || break
+    printf 'start %s %s\n' "$kind" "$variant" > "$interface/control"
+    cat "$interface/status" > "$run/driver-$variant-initial.out"
+    if [ "$kind:$variant" = defer:fixed ]; then
+        printf 'ready\n' > "$interface/control"
+    fi
+    if [ "$kind" = remove ]; then
+        printf 'detach\n' > "$interface/control"
+        sleep 1
+    fi
+    cat "$interface/status" > "$run/driver-$variant.out"
+    name=sadboard-study
+    [ "$kind:$variant" != match:bug ] || name=sadboard-study-mismatch
+    if [ -L "/sys/bus/platform/devices/$name/driver" ]; then
+        readlink "/sys/bus/platform/devices/$name/driver" > "$run/driver-$variant-binding.txt"
+    else
+        printf 'unbound\n' > "$run/driver-$variant-binding.txt"
+    fi
+    if [ -d "/sys/bus/platform/devices/$name" ]; then
+        cat "/sys/bus/platform/devices/$name/modalias" > "$run/driver-$variant-modalias.txt"
+        cat "/sys/bus/platform/devices/$name/uevent" > "$run/driver-$variant-uevent.txt"
+    fi
+    cat /sys/kernel/debug/devices_deferred > "$run/driver-$variant-deferred.txt"
+    printf 'clear\n' > "$interface/control"
+done
+dmesg | tail -n 200 > "$run/driver-kernel.log"
