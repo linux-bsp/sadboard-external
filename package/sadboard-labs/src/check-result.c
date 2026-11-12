@@ -8,6 +8,7 @@
 #include <limits.h>
 #include <math.h>
 #include <sched.h>
+#include <stdbool.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -843,6 +844,109 @@ static void driver_check(const char *scenario, int verify)
         reject("driver laboratory resources not reclaimed");
 }
 
+static void async_check(const char *scenario, int verify)
+{
+    static const char *const names[] = {"async-coalesce", "async-ordered", "async-predicate", "async-reference", "async-stop"};
+    static const char *const keys[] = {"kind", "fixed", "requested", "queued", "coalesced", "executed", "processed",
+        "slow_done", "control_before_slow", "ready", "premature", "delivered", "release_count", "owner_refs",
+        "late", "wait_timeout", "stop_seen", "active", "held", "error"};
+    static const char *const events[] = {"start", "slow-enter", "slow-exit", "submit", "event-work", "control-submit",
+        "control-work", "false-wake", "publish", "consume", "ref-enter", "owner-put", "release", "ref-use",
+        "stop-request", "thread-exit", "clean"};
+    static const char *const functions[] = {"event_callback", "control_callback", "waiter_thread", "reference_callback", "stop_thread"};
+    unsigned kind;
+    for (kind = 0; kind < 5 && strcmp(scenario, names[kind]); kind++) {}
+    if (kind == 5) reject("unknown async exercise");
+    for (unsigned fixed = 0; fixed < (verify ? 2U : 1U); fixed++) {
+        char file[80], line[512];
+        uint64_t v[20], expected[20] = {0};
+        snprintf(file, sizeof(file), "async-%s.out", fixed ? "fixed" : "bug");
+        numeric_json(file, keys, 20, v);
+        expected[0] = kind; expected[1] = fixed; expected[2] = 1; expected[5] = 1;
+        if (kind == 0) {
+            expected[2] = 16; expected[3] = 1; expected[4] = 15; expected[6] = fixed ? 16 : 1; expected[7] = 1;
+        } else if (kind == 1) {
+            expected[2] = expected[3] = expected[5] = expected[6] = 2; expected[7] = 1; expected[8] = fixed;
+        } else if (kind == 2) {
+            expected[6] = expected[9] = fixed; expected[10] = !fixed; expected[11] = fixed ? 42 : 0;
+        } else if (kind == 3) {
+            expected[3] = expected[12] = 1; expected[6] = expected[13] = fixed;
+            expected[14] = !fixed; expected[11] = fixed ? 42 : 0;
+        } else {
+            expected[6] = expected[16] = 1; expected[15] = !fixed;
+        }
+        for (unsigned i = 0; i < 20; i++)
+            if (v[i] != expected[i]) reject("async outcome/resource contract");
+        snprintf(file, sizeof(file), "async-%s.csv", fixed ? "fixed" : "bug");
+        FILE *f = open_file(file, 32768);
+        if (!fgets(line, sizeof(line), f) || strcmp(line, "index,ns,event,value,cpu,pid,in_interrupt,irqs_disabled\n"))
+            reject("async event header");
+        unsigned count = 0, hits[17] = {0}, positions[17] = {0};
+        uint64_t sums[17] = {0}, previous = 0;
+        while (fgets(line, sizeof(line), f)) {
+            unsigned index, value, cpu, pid, interrupt, disabled, event;
+            uint64_t ns;
+            char name[32], extra;
+            if (sscanf(line, "%u,%" SCNu64 ",%31[^,],%u,%u,%u,%u,%u %c", &index, &ns,
+                       name, &value, &cpu, &pid, &interrupt, &disabled, &extra) != 8 ||
+                index != count || count >= 96 || !ns || ns < previous || !pid || interrupt || disabled)
+                reject("async event ordering/context");
+            for (event = 0; event < 17 && strcmp(name, events[event]); event++) {}
+            if (event == 17 || (hits[event] && event != 3)) reject("unknown/repeated async event");
+            positions[event] = count++; hits[event]++; sums[event] += value; previous = ns;
+        }
+        fclose(f);
+        if (hits[0] != 1 || sums[0] != kind || hits[16] != 1 || sums[16] || positions[0] || positions[16] != count - 1)
+            reject("async event boundaries");
+        if (kind == 0 && (count != 21 || hits[3] != 16 || sums[3] != 1 || hits[4] != 1 ||
+                         sums[4] != v[6] || hits[1] != 1 || hits[2] != 1 || positions[2] > positions[4]))
+            reject("work coalescing transcript");
+        if (kind == 1 && (count != 6 || hits[1] != 1 || hits[2] != 1 || hits[5] != 1 || hits[6] != 1 ||
+                         sums[6] != fixed || (positions[6] < positions[2]) != fixed))
+            reject("ordered queue causal transcript");
+        if (kind == 2 && (count != 4 + fixed || hits[7] != 1 || hits[8] != fixed || hits[9] != 1 ||
+                         sums[9] != v[11] || positions[7] > positions[9] || (fixed && positions[8] > positions[9])))
+            reject("wait predicate transcript");
+        if (kind == 3 && (count != 6 || hits[10] != 1 || hits[11] != 1 || hits[12] != 1 || hits[13] != 1 ||
+                         sums[13] != !fixed || positions[11] > positions[13] ||
+                         (positions[13] < positions[12]) != fixed))
+            reject("reference ownership transcript");
+        if (kind == 4 && (count != 4 || hits[14] != 1 || hits[15] != 1 || sums[15] != !fixed || positions[14] > positions[15]))
+            reject("thread stop transcript");
+        snprintf(file, sizeof(file), "async-%s.ftrace", fixed ? "fixed" : "bug");
+        f = open_file(file, 2 * 1024 * 1024);
+        bool tracer = false, callback = false;
+        while (fgets(line, sizeof(line), f)) {
+            tracer |= strstr(line, "# tracer: function") != NULL;
+            callback |= strstr(line, functions[kind]) != NULL && strstr(line, " <-") != NULL;
+        }
+        fclose(f);
+        if (!tracer || !callback) reject("missing independent function trace");
+        char filter[8192];
+        text_file("async-ftrace-filter.txt", filter, sizeof(filter));
+        if (!strstr(filter, functions[kind])) reject("callback absent from saved trace filter");
+        snprintf(file, sizeof(file), "async-%s-trace-stats.txt", fixed ? "fixed" : "bug");
+        f = open_file(file, 16384);
+        unsigned statistics = 0;
+        while (fgets(line, sizeof(line), f)) {
+            if (strstr(line, "overrun:") || strstr(line, "dropped events:")) {
+                char *value = strchr(line, ':') + 1;
+                skip_space(&value);
+                if (number(&value)) reject("async trace lost records");
+                statistics++;
+            }
+        }
+        fclose(f);
+        if (!statistics) reject("missing trace loss statistics");
+    }
+    static const char *const cleanup_keys[] = {"kind", "fixed", "requested", "queued", "coalesced", "executed", "processed",
+        "slow_done", "control_before_slow", "ready", "premature", "delivered", "release_count", "owner_refs",
+        "late", "wait_timeout", "stop_seen", "active", "held", "error"};
+    uint64_t cleanup[20];
+    numeric_json("async-cleanup.out", cleanup_keys, 20, cleanup);
+    if (cleanup[17] || cleanup[18] || cleanup[19]) reject("async resources not reclaimed");
+}
+
 static void student_evidence(void)
 {
     static const char *const keys[] = {"tests", "passed", "failed", "candidate_size"};
@@ -933,6 +1037,9 @@ int main(int argc, char **argv)
         if (!strcmp(scenario, "deadline")) deadline_check(mode, argc - 5, argv + 5);
         else if (!strcmp(scenario, "backlog")) backlog_check(mode, argc - 5, argv + 5);
         else tcp_check(mode, argc - 5, argv + 5);
+    } else if (!strncmp(scenario, "async-", 6)) {
+        if (argc != 5 || code) reject("async exit/parameters");
+        async_check(scenario, verify);
     } else if (!strncmp(scenario, "driver-", 7)) {
         if (argc != 5 || code) reject("driver exit/parameters");
         driver_check(scenario, verify);

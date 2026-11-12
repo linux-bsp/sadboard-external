@@ -64,6 +64,10 @@ case "${1:-}" in
             network) new_run network; exec "$tools/run-network" bug "$run" ;;
             kernel-oops|kernel-lockup|watchdog-probe) new_run "$2"; exec "$tools/watchdog-probe" --lock sh "$tools/run-kernel" "$2" "$run" ;;
             memory-cma) new_run memory-cma; exec "$tools/watchdog-probe" --lock sh "$tools/run-cma" run "$run" ;;
+            async-coalesce|async-ordered|async-predicate|async-reference|async-stop)
+                new_run "$2-run"
+                "$tools/watchdog-probe" --lock sh "$tools/run-async" run "$2" "$run"
+                cat "$run/async-bug.out" ;;
             driver-match|driver-property|driver-defer|driver-unwind|driver-remove)
                 new_run "$2-run"
                 "$tools/watchdog-probe" --lock sh "$tools/run-driver" run "$2" "$run"
@@ -83,6 +87,11 @@ case "${1:-}" in
         [ "$#" -ge 2 ] || usage
         case "$2" in
             memory-cma) new_run memory-cma; exec "$tools/watchdog-probe" --lock sh "$tools/run-cma" verify "$run" ;;
+            async-coalesce|async-ordered|async-predicate|async-reference|async-stop)
+                new_run "$2-verify"
+                "$tools/watchdog-probe" --lock sh "$tools/run-async" verify "$2" "$run"
+                cat "$run/async-bug.out" "$run/async-fixed.out"
+                "$tools/check-result" "$2" verify "$run" 0 ;;
             driver-match|driver-property|driver-defer|driver-unwind|driver-remove)
                 new_run "$2-verify"
                 "$tools/watchdog-probe" --lock sh "$tools/run-driver" verify "$2" "$run"

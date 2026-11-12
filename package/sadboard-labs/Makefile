@@ -61,7 +61,7 @@ install: all
 	$(INSTALL) -D -m 0755 run-memory $(DESTDIR)/usr/libexec/sadboard/run-memory
 	$(INSTALL) -D -m 0755 execute $(DESTDIR)/usr/libexec/sadboard/execute
 	$(INSTALL) -m 0644 results.sh $(DESTDIR)/usr/libexec/sadboard/results.sh
-	for script in run-cma run-kernel run-driver check-kernel run-network-suite cleanup-cgroups run-suite run-network run-tcp run-panic check-panic; do $(INSTALL) -m 0755 $$script $(DESTDIR)/usr/libexec/sadboard/; done
+	for script in run-cma run-kernel run-driver run-async check-kernel run-network-suite cleanup-cgroups run-suite run-network run-tcp run-panic check-panic; do $(INSTALL) -m 0755 $$script $(DESTDIR)/usr/libexec/sadboard/; done
 	$(INSTALL) -d $(DESTDIR)/usr/src/sadboard/kernel
 	$(INSTALL) -m 0644 kernel/*.c kernel/Makefile $(DESTDIR)/usr/src/sadboard/kernel/
 	$(INSTALL) -m 0644 src/*.c src/*.h src/*.def src/*.S $(DESTDIR)/usr/src/sadboard/src/

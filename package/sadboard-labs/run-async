@@ -1,0 +1,74 @@
+#!/bin/sh
+# Own only this module and a private trace instance; invoked under the lab flock.
+set -eu
+operation=$1; scenario=$2; run=$3
+interface=/sys/kernel/debug/sadboard-async
+owner=/run/sadboard-async-owner
+trace=
+case "$scenario" in
+    async-coalesce) kind=coalesce ;;
+    async-ordered) kind=ordered ;;
+    async-predicate) kind=predicate ;;
+    async-reference) kind=reference ;;
+    async-stop) kind=stop ;;
+    *) exit 64 ;;
+esac
+remove_trace() {
+    [ -n "$trace" ] && [ -d "$trace" ] || return 0
+    printf '0\n' > "$trace/tracing_on"
+    printf 'nop\n' > "$trace/current_tracer"
+    rmdir "$trace"
+}
+cleanup() {
+    remove_trace
+    if [ -d /sys/module/sadboard_async ]; then
+        printf 'clear\n' > "$interface/control"
+        cat "$interface/status" > "$run/async-cleanup.out"
+        rmmod sadboard_async
+    fi
+    rm -f "$owner"
+}
+if [ "$operation" = reset ]; then
+    [ -f "$owner" ] && [ "$(cat "$owner")" = "$run" ] || exit 0
+    if [ -f "$run/async-trace-instance.txt" ]; then
+        trace=$(cat "$run/async-trace-instance.txt")
+        number=${trace#/sys/kernel/tracing/instances/sadboard-async-}
+        case "$number" in ''|*[!0-9]*) exit 75 ;; esac
+    fi
+    cleanup
+    exit 0
+fi
+[ ! -d /sys/module/sadboard_async ] && [ ! -e "$owner" ] || {
+    echo '[sadboard] [ERROR] Async laboratory already owned; reset its evidence directory first' >&2
+    exit 75
+}
+if [ -n "${SADBOARD_ASYNC_MODULE:-}" ]; then
+    insmod "$SADBOARD_ASYNC_MODULE"
+else
+    modprobe sadboard-async
+fi
+printf '%s\n' "$run" > "$owner"
+trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
+trace=/sys/kernel/tracing/instances/sadboard-async-$$
+mkdir "$trace"
+printf '%s\n' "$trace" > "$run/async-trace-instance.txt"
+printf '0\n' > "$trace/tracing_on"
+printf '64\n' > "$trace/buffer_size_kb"
+printf 'mono\n' > "$trace/trace_clock"
+printf '*:mod:sadboard_async\n' > "$trace/set_ftrace_filter"
+cat "$trace/set_ftrace_filter" > "$run/async-ftrace-filter.txt"
+printf 'function\n' > "$trace/current_tracer"
+for variant in bug fixed; do
+    [ "$variant:$operation" != fixed:run ] || break
+    printf '' > "$trace/trace"
+    printf '1\n' > "$trace/tracing_on"
+    printf 'start %s %s\n' "$kind" "$variant" > "$interface/control"
+    printf '0\n' > "$trace/tracing_on"
+    cat "$interface/status" > "$run/async-$variant.out"
+    cat "$interface/events" > "$run/async-$variant.csv"
+    cat "$trace/trace" > "$run/async-$variant.ftrace"
+    for stats in "$trace"/per_cpu/cpu*/stats; do
+        cat "$stats"
+    done > "$run/async-$variant-trace-stats.txt"
+done

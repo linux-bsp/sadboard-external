@@ -51,13 +51,18 @@ static const struct suite_case external_cases[] = {
     {"driver-defer", "K-DRV03", "Deferred probe waits for a controlled supplier condition", NULL},
     {"driver-unwind", "K-DRV04", "Probe failure retains a bounded resource without managed cleanup", NULL},
     {"driver-remove", "K-DRV05", "Remove without work cancellation permits a late callback", NULL},
+    {"async-coalesce", "K-ASY01", "Repeated queue_work coalesces events without an explicit event ledger", NULL},
+    {"async-ordered", "K-ASY02", "A slow ordered-workqueue job blocks a control job", NULL},
+    {"async-predicate", "K-ASY03", "A waitqueue wakeup is mistaken for a ready predicate", NULL},
+    {"async-reference", "K-ASY04", "Missing callback reference releases an object too early (quarantined)", NULL},
+    {"async-stop", "K-ASY05", "Kthread stop is omitted from a blocking wait condition", NULL},
 };
 
 static unsigned catalog_group(const char *id)
 {
     static const char *const groups[] = {
         "B-CR", "B-FD", "B-MM", "B-CPU", "B-SYNC", "B-NET", "B-BOOT", "A-P", "A-M", "A-N",
-        "L-ASM", "K-MM", "K-VFS", "K-IPC", "K-TIME", "K-PROC", "K-NET", "K-IO", "K-SCHED", "K-DRV"
+        "L-ASM", "K-MM", "K-VFS", "K-IPC", "K-TIME", "K-PROC", "K-NET", "K-IO", "K-SCHED", "K-DRV", "K-ASY"
     };
     unsigned count = sizeof(groups) / sizeof(groups[0]);
     for (unsigned i = 0; i < count; i++)
